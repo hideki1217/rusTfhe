@@ -1,6 +1,81 @@
-use std::ops::{Add, Mul};
+use std::ops::{Add, Mul, Neg};
 
 use num::{traits::WrappingAdd, Float, Num, ToPrimitive, Unsigned};
+use rand::{prelude::ThreadRng, Rng};
+use rand_distr::{Distribution, Normal, Uniform};
+
+#[derive(Debug)]
+pub enum Binary {
+    One = 1,
+    Zero = 0,
+}
+impl Binary {
+    fn from<T: Num>(t: T) -> Binary {
+        if t == T::zero() {
+            Binary::Zero
+        } else {
+            Binary::One
+        }
+    }
+}
+
+trait Random<T> {
+    fn gen(&mut self) -> T;
+}
+#[derive(Debug)]
+struct ModGuassian<R: Rng> {
+    normal: Normal<f32>,
+    rng: R,
+}
+impl<R: Rng> Random<Decimal<u32>> for ModGuassian<R> {
+    fn gen(&mut self) -> Decimal<u32> {
+        let r = self.normal.sample(&mut self.rng);
+        Decimal::from_f32(r)
+    }
+}
+impl ModGuassian<ThreadRng> {
+    fn new(std_dev: f32) -> Self {
+        ModGuassian {
+            normal: Normal::new(f32::neg_zero(), std_dev).unwrap(),
+            rng: rand::thread_rng(),
+        }
+    }
+}
+struct ModUniform<R: Rng> {
+    uniform: Uniform<f32>,
+    rng: R,
+}
+impl<R: Rng> Random<Decimal<u32>> for ModUniform<R> {
+    fn gen(&mut self) -> Decimal<u32> {
+        Decimal::from_f32(self.uniform.sample(&mut self.rng))
+    }
+}
+impl ModUniform<ThreadRng> {
+    fn new() -> Self {
+        ModUniform {
+            uniform: Uniform::new(0.0, 1.0),
+            rng: rand::thread_rng(),
+        }
+    }
+}
+
+struct BinaryUniform<R: Rng> {
+    uniform: Uniform<i32>,
+    rng: R,
+}
+impl<R: Rng> Random<Binary> for BinaryUniform<R> {
+    fn gen(&mut self) -> Binary {
+        Binary::from(self.uniform.sample(&mut self.rng))
+    }
+}
+impl BinaryUniform<ThreadRng> {
+    fn new() -> Self {
+        BinaryUniform {
+            uniform: Uniform::new(0, 2),
+            rng: rand::thread_rng(),
+        }
+    }
+}
 
 /**
   0.5 = 101000...
@@ -11,7 +86,7 @@ use num::{traits::WrappingAdd, Float, Num, ToPrimitive, Unsigned};
   = 100000.. * 3 = 100000.. = 0.5
 */
 #[derive(Debug, PartialEq)]
-struct Decimal<U: Unsigned>(U);
+pub struct Decimal<U: Unsigned>(U);
 impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
     type Output = Decimal<U>;
 
@@ -26,8 +101,15 @@ impl<T: ToPrimitive> Mul<T> for Decimal<u32> {
         Decimal(self.0.wrapping_mul(rhs.to_u32().unwrap()))
     }
 }
+impl Neg for Decimal<u32> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Decimal(u32::MAX - self.0)
+    }
+}
 impl Decimal<u32> {
-    // TODO: 精度が悪い。floatのメモリ配置から構成するようにしたい。
+    // floatのメモリ的に有効数字2進24桁なので、その範囲で構成。
     fn from_f32(val: f32) -> Self {
         let mut x: u32 = 0;
         {
@@ -51,6 +133,10 @@ impl Decimal<u32> {
     }
 }
 
+/**
+内積を定義するための配列ラップ
+ベクトル演算は下に実装
+ */
 pub struct Array1<T: Num, const N: usize> {
     items: [T; N],
 }
@@ -73,7 +159,18 @@ impl<T: Num + Copy, const N: usize> Default for Array1<T, N> {
 }
 #[cfg(test)]
 mod tests {
+    use std::ops::Sub;
+
     use super::*;
+
+    #[test]
+    fn mod_guassian_run() {
+        let mut mg = ModGuassian::new(1.0);
+
+        for _ in 0..50 {
+            println!("{:?}", mg.gen());
+        }
+    }
 
     #[test]
     fn f32_experiment() {
@@ -118,17 +215,17 @@ mod tests {
             let dx = Decimal::from_f32(x);
             let dy = Decimal::from_f32(y);
             let Decimal(result) = dx + dy;
-            let Decimal(respect) = Decimal::from_f32(z);
+            let Decimal(expect) = Decimal::from_f32(z);
 
             assert_eq!(
                 result,
-                respect,
+                expect,
                 "test for {}+{} == {} ?\n result={:?},respect={:?}",
                 x,
                 y,
                 z,
                 Decimal(result),
-                Decimal(respect)
+                Decimal(expect)
             );
         };
 
@@ -142,7 +239,7 @@ mod tests {
     }
     #[test]
     fn decimal_mul() {
-        let eps: u32 = 2000; // これくらいの精度は出る。有効数字6桁くらい
+        let acc: u32 = 2000; // これくらいの精度は出る。有効数字6桁くらい
 
         let test = |x: f32, y: u32, z: f32| {
             let dx = Decimal::from_f32(x);
@@ -150,11 +247,7 @@ mod tests {
             let Decimal(respect) = Decimal::from_f32(z);
 
             assert!(
-                if result > respect {
-                    result - respect
-                } else {
-                    respect - result
-                } < eps,
+                range_eq(result, respect, acc),
                 "test for {}*{} == {} ?\n result={:?},respect={:?}",
                 x,
                 y,
@@ -172,6 +265,28 @@ mod tests {
         test(0.67, 2, 0.34);
         test(0.524, 5, 0.62);
     }
+    #[test]
+    fn decimal_neg() {
+        let test = |x: f32| {
+            let acc: u32 = 100;
+
+            let dec = Decimal::from_f32(x);
+            let Decimal(expect) = Decimal::from_f32(-x);
+            let Decimal(result) = -dec;
+
+            assert!(
+                range_eq(result, expect, acc),
+                "result={:?},expect={:?}",
+                Decimal(result),
+                Decimal(expect)
+            );
+        };
+
+        test(0.5);
+        test(-0.25);
+        test(0.125);
+        test(0.4);
+    }
 
     #[test]
     fn array1_dot() {
@@ -179,5 +294,14 @@ mod tests {
         let y: Array1<u32, 3> = Array1::new([1, 2, 3]);
 
         assert!(x.dot(&y) == 26)
+    }
+
+    fn range_eq<T: Num + PartialOrd>(result: T, expect: T, acc: T) -> bool {
+        let diff: T = if result > expect {
+            result - expect
+        } else {
+            expect - result
+        };
+        acc > diff
     }
 }
