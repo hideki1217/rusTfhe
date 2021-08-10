@@ -27,24 +27,25 @@ impl<T: ToPrimitive> Mul<T> for Decimal<u32> {
     }
 }
 impl Decimal<u32> {
+    // TODO: 精度が悪い。floatのメモリ配置から構成するようにしたい。
     fn from_f32(val: f32) -> Self {
         let mut x: u32 = 0;
         {
-            let mut val = (val - val.floor()).fract();
+            let f_acc = f32::MANTISSA_DIGITS;
             let end = u32::BITS;
-            for i in 1..=end {
-                let l = (0.5).powi(i as i32);
 
+            let mut val = (val - val.floor()).fract();
+            for i in 1..f_acc {
+                let l = (0.5).powi(i as i32);
                 x += if val >= l {
                     val -= l;
                     1
                 } else {
                     0
                 };
-                if i != end {
-                    x <<= 1
-                };
+                x <<= 1
             }
+            x <<= end - f_acc;
         }
         Decimal(x)
     }
@@ -113,20 +114,15 @@ mod tests {
     }
     #[test]
     fn decimal_add() {
-        let eps: u32 = 100; // これくらいの精度は出る。有効数字6桁くらい
-
         let test = |x: f32, y: f32, z: f32| {
             let dx = Decimal::from_f32(x);
             let dy = Decimal::from_f32(y);
             let Decimal(result) = dx + dy;
             let Decimal(respect) = Decimal::from_f32(z);
 
-            assert!(
-                if result > respect {
-                    result - respect
-                } else {
-                    respect - result
-                } < eps,
+            assert_eq!(
+                result,
+                respect,
                 "test for {}+{} == {} ?\n result={:?},respect={:?}",
                 x,
                 y,
@@ -141,8 +137,40 @@ mod tests {
         test(0.5, 0.75, 0.25);
         test(0.75, -0.25, 0.5);
         test(0.4, 0.7, 0.1);
-        test(0.67,0.41,0.08);
-        test(0.524,0.623,0.147);
+        test(0.67, 0.41, 0.08);
+        test(0.524, 0.623, 0.147);
+    }
+    #[test]
+    fn decimal_mul() {
+        let eps: u32 = 2000; // これくらいの精度は出る。有効数字6桁くらい
+
+        let test = |x: f32, y: u32, z: f32| {
+            let dx = Decimal::from_f32(x);
+            let Decimal(result) = dx * y;
+            let Decimal(respect) = Decimal::from_f32(z);
+
+            assert!(
+                if result > respect {
+                    result - respect
+                } else {
+                    respect - result
+                } < eps,
+                "test for {}*{} == {} ?\n result={:?},respect={:?}",
+                x,
+                y,
+                z,
+                Decimal(result),
+                Decimal(respect)
+            );
+        };
+
+        test(0.5, 1, 0.5);
+        test(0.25, 2, 0.5);
+        test(0.5, 2, 0.0);
+        test(0.75, 4, 0.0);
+        test(0.4, 3, 0.2);
+        test(0.67, 2, 0.34);
+        test(0.524, 5, 0.62);
     }
 
     #[test]
