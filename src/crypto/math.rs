@@ -1,76 +1,77 @@
-use std::ops::{Add, Mul, Neg};
-
-use num::{traits::WrappingAdd, Float, Num, ToPrimitive, Unsigned};
+use std::ops::{Add, Mul, Neg, Sub};
+use array_macro::array;
+use num::{Float, Num, One, ToPrimitive, Unsigned, Zero, traits::WrappingAdd};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 
-#[derive(Debug)]
+#[derive(Debug,Clone, Copy,PartialEq)]
 pub enum Binary {
     One = 1,
     Zero = 0,
 }
 impl Binary {
-    fn from<T: Num>(t: T) -> Binary {
+    pub fn from<T: Num>(t: T) -> Binary {
         if t == T::zero() {
             Binary::Zero
         } else {
             Binary::One
         }
     }
+    pub fn to<T: Num>(&self) -> T {
+        match self {
+            Binary::One => T::one(),
+            Binary::Zero => T::zero(),
+        }
+    }
 }
 
-trait Random<T> {
+pub trait Random<T> {
     fn gen(&mut self) -> T;
+    fn genN<const N: usize>(&mut self) -> [T; N] {
+        let l: [T; N] = array![_ => self.gen(); N];
+        l
+    }
 }
 #[derive(Debug)]
-struct ModGuassian<R: Rng> {
-    normal: Normal<f32>,
+pub struct ModDistribution<X: Distribution<f32>, R: Rng> {
+    distr: X,
     rng: R,
 }
-impl<R: Rng> Random<Decimal<u32>> for ModGuassian<R> {
+impl<X: Distribution<f32>, R: Rng> Random<Decimal<u32>> for ModDistribution<X, R> {
     fn gen(&mut self) -> Decimal<u32> {
-        let r = self.normal.sample(&mut self.rng);
+        let r = self.distr.sample(&mut self.rng);
         Decimal::from_f32(r)
     }
 }
-impl ModGuassian<ThreadRng> {
-    fn new(std_dev: f32) -> Self {
-        ModGuassian {
-            normal: Normal::new(f32::neg_zero(), std_dev).unwrap(),
+impl ModDistribution<Normal<f32>, ThreadRng> {
+    pub fn gaussian(std_dev: f32) -> Self {
+        ModDistribution {
+            distr: Normal::new(f32::neg_zero(), std_dev).unwrap(),
             rng: rand::thread_rng(),
         }
     }
 }
-struct ModUniform<R: Rng> {
-    uniform: Uniform<f32>,
-    rng: R,
-}
-impl<R: Rng> Random<Decimal<u32>> for ModUniform<R> {
-    fn gen(&mut self) -> Decimal<u32> {
-        Decimal::from_f32(self.uniform.sample(&mut self.rng))
-    }
-}
-impl ModUniform<ThreadRng> {
-    fn new() -> Self {
-        ModUniform {
-            uniform: Uniform::new(0.0, 1.0),
+impl ModDistribution<Uniform<f32>, ThreadRng> {
+    pub fn uniform() -> Self {
+        ModDistribution {
+            distr: Uniform::new(0.0, 1.0),
             rng: rand::thread_rng(),
         }
     }
 }
 
-struct BinaryUniform<R: Rng> {
-    uniform: Uniform<i32>,
+pub struct BinaryDistribution<X: Distribution<i32>, R: Rng> {
+    uniform: X,
     rng: R,
 }
-impl<R: Rng> Random<Binary> for BinaryUniform<R> {
+impl<X: Distribution<i32>, R: Rng> Random<Binary> for BinaryDistribution<X, R> {
     fn gen(&mut self) -> Binary {
         Binary::from(self.uniform.sample(&mut self.rng))
     }
 }
-impl BinaryUniform<ThreadRng> {
-    fn new() -> Self {
-        BinaryUniform {
+impl BinaryDistribution<Uniform<i32>, ThreadRng> {
+    pub fn uniform() -> BinaryDistribution<Uniform<i32>, ThreadRng> {
+        BinaryDistribution {
             uniform: Uniform::new(0, 2),
             rng: rand::thread_rng(),
         }
@@ -85,7 +86,7 @@ impl BinaryUniform<ThreadRng> {
   Ex.  0.5 * 3
   = 100000.. * 3 = 100000.. = 0.5
 */
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq,Clone, Copy)]
 pub struct Decimal<U: Unsigned>(U);
 impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
     type Output = Decimal<U>;
@@ -94,6 +95,7 @@ impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
         Decimal(self.0.wrapping_add(&rhs.0))
     }
 }
+pub type Torus = Decimal<u32>;
 impl<T: ToPrimitive> Mul<T> for Decimal<u32> {
     type Output = Decimal<u32>;
 
@@ -108,9 +110,102 @@ impl Neg for Decimal<u32> {
         Decimal(u32::MAX - self.0)
     }
 }
+impl ToPrimitive for Decimal<u32> {
+    fn to_i64(&self) -> Option<i64> {
+        Some(0)
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        Some(0)
+    }
+
+    fn to_isize(&self) -> Option<isize> {
+        Some(0)
+    }
+
+    fn to_i8(&self) -> Option<i8> {
+        Some(0)
+    }
+
+    fn to_i16(&self) -> Option<i16> {
+        Some(0)
+    }
+
+    fn to_i32(&self) -> Option<i32> {
+        Some(0)
+    }
+
+    fn to_i128(&self) -> Option<i128> {
+        Some(0)
+    }
+
+    fn to_usize(&self) -> Option<usize> {
+        Some(0)
+    }
+
+    fn to_u8(&self) -> Option<u8> {
+        Some(0)
+    }
+
+    fn to_u16(&self) -> Option<u16> {
+        Some(0)
+    }
+
+    fn to_u32(&self) -> Option<u32> {
+        Some(0)
+    }
+
+    fn to_u128(&self) -> Option<u128> {
+        Some(0)
+    }
+
+    fn to_f32(&self) -> Option<f32> {
+        let n = f32::MANTISSA_DIGITS;
+        let mut u = self.0;
+        u >>= 32 - n;
+        let f = (1..=n)
+            .map(|i| (0.5).powi(i as i32))
+            .rev()
+            .filter(|_| {
+                let flag = if u & 1 > 0 { true } else { false };
+                u >>= 1;
+                flag
+            })
+            .fold(f32::neg_zero(), |s, x| s + x);
+        Some(f)
+    }
+
+    fn to_f64(&self) -> Option<f64> {
+        match self.to_f32() {
+            Some(f) => Some(f as f64),
+            None => None,
+        }
+    }
+}
+impl One for Decimal<u32> {
+    fn one() -> Self {
+        Decimal(u32::MAX)
+    }
+}
+impl Zero for Decimal<u32> {
+    fn zero() -> Self {
+        Decimal(u32::zero())
+    }
+
+    fn is_zero(&self) -> bool {
+        u32::is_zero(&self.0)
+    }
+}
+impl Sub for Decimal<u32> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self + (-rhs)
+    }
+}
 impl Decimal<u32> {
     // floatのメモリ的に有効数字2進24桁なので、その範囲で構成。
-    fn from_f32(val: f32) -> Self {
+    pub fn from_f32(val: f32) -> Self {
         let mut x: u32 = 0;
         {
             let f_acc = f32::MANTISSA_DIGITS;
@@ -159,13 +254,11 @@ impl<T: Num + Copy, const N: usize> Default for Array1<T, N> {
 }
 #[cfg(test)]
 mod tests {
-    use std::ops::Sub;
-
     use super::*;
 
     #[test]
     fn mod_guassian_run() {
-        let mut mg = ModGuassian::new(1.0);
+        let mut mg = ModDistribution::gaussian(1.0);
 
         for _ in 0..50 {
             println!("{:?}", mg.gen());
@@ -208,6 +301,19 @@ mod tests {
         test(0.125, 1 << (u32::BITS - 3));
         test(-0.5, 1 << (u32::BITS - 1));
         test(-0.25, (1 << (u32::BITS - 2)) + (1 << (u32::BITS - 1)));
+    }
+    #[test]
+    fn decimal_to_f32() {
+        let test = |f: f32,g: f32| {
+            let res = Decimal::from_f32(f);
+            assert!((res.to_f32().unwrap()-g).abs() < f32::EPSILON, "test for {}", f);
+        };
+
+        test(0.5,0.5);
+        test(0.25,0.25);
+        test(-0.25,0.75);
+        test(0.4,0.4);
+        test(0.123,0.123);
     }
     #[test]
     fn decimal_add() {
