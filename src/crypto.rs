@@ -63,7 +63,7 @@ impl Crypto<math::Binary> for TLWE {
         let mut unif = math::ModDistribution::uniform();
         let mut norm = math::ModDistribution::gaussian(TLWE::ALPHA);
 
-        let a: [math::Torus; TLWE::N] = unif.genN();
+        let a: [math::Torus; TLWE::N] = unif.gen_n();
         let m = rep;
         let e = norm.gen();
         let b = a
@@ -111,7 +111,7 @@ mod tests {
         let tlwe = TLWE::new();
 
         let mut test = |item:Binary| {
-            let s_key: [Binary; TLWE::N] = b_uniform.genN();
+            let s_key: [Binary; TLWE::N] = b_uniform.gen_n();
             let (cipher, p_key) = tlwe.encrypto(s_key, item);
             let res = tlwe.decrypto(s_key, p_key, cipher);
     

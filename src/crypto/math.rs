@@ -1,10 +1,98 @@
-use std::ops::{Add, Mul, Neg, Sub};
 use array_macro::array;
-use num::{Float, Num, One, ToPrimitive, Unsigned, Zero, traits::WrappingAdd};
+use num::{traits::WrappingAdd, Float, Num, One, ToPrimitive, Unsigned, Zero};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
+use std::{ops::{Add, Mul, Neg, Sub}, process::Output};
 
-#[derive(Debug,Clone, Copy,PartialEq)]
+trait Ring<T>: Mul<T, Output = Self> + Add + Sized {}
+/**
+P(X) = SUM_{i=0}^{N-1} coefficient[i]X^i
+を表す。
+ */
+struct Polynomial<T, const N: usize> {
+    coefficient: [T; N],
+}
+impl<S, T, const N: usize> Ring<S> for Polynomial<T, N>
+where
+    S: Copy,
+    T: Copy + Mul<S, Output = T> + Add<Output = T>,
+{
+}
+impl<S: Copy, T: Mul<S, Output = T> + Copy, const N: usize> Mul<S> for Polynomial<T, N> {
+    type Output = Self;
+
+    fn mul(self, rhs: S) -> Self::Output {
+        let res: [T; N] = array![i => self.coefficient[i]*rhs;N];
+        Polynomial { coefficient: res }
+    }
+}
+impl<T: Add<Output = T> + Copy, const N: usize> Add for Polynomial<T, N> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let res: [T; N] = array![i=> self.coefficient[i]+rhs.coefficient[i];N];
+        Polynomial { coefficient: res }
+    }
+}
+impl<
+        S: Copy,
+        T: Mul<S, Output = T> + Add<Output = T> + Sub<Output = T> + Copy + Zero,
+        const N: usize,
+    > Mul<Polynomial<S, N>> for Polynomial<T, N>
+{
+    type Output = Self;
+
+    fn mul(self, rhs: Polynomial<S, N>) -> Self::Output {
+        // TODO: FFTにするとO(nlog(n))、今はn^2
+        let poly_cross = |l: &[T; N], r: &[S; N]| {
+            let mut v = Vec::with_capacity(2 * N);
+            for sum in 0..2 * N - 1 {
+                v.push(T::zero());
+                let l_lim = if sum < (N - 1) { 0 } else { sum - (N - 1) };
+                let r_lim = sum.min(N - 1);
+                // p(x)*q(x) = \sum_{s=0}^{2*(n-1)} \sum_{i=max(0,sum-(n-1))^{min(sum,n-1)} p_i * q_{sum-i}
+                for j in l_lim..=r_lim {
+                    v[sum] = v[sum] + l[sum - j] * r[j];
+                }
+            }
+            v
+        };
+        // X^N+1で割ったあまりを返す
+        let decompose = |pol: Vec<T>| {
+            let res: [T; N] = array![i=>if i<N-1 { pol[i]-pol[N+i] } else {pol[i]};N];
+            res
+        };
+
+        Polynomial {
+            coefficient: decompose(poly_cross(&self.coefficient, &rhs.coefficient)),
+        }
+    }
+}
+impl<T:Neg<Output=T>+Copy,const N:usize> Neg for Polynomial<T,N> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        let l : [T;N] = array![i=>-self.coefficient[i];N];
+        Polynomial::new(l)
+    }
+}
+impl<T:Sub<Output=T>+Copy,const N:usize> Sub for Polynomial<T,N> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let l:[T;N] = array![i=>self.coefficient[i]-rhs.coefficient[i];N];
+        Polynomial::new(l)
+    }
+}
+impl<T, const N: usize> Polynomial<T, N> {
+    pub fn new(coeffis: [T; N]) -> Self {
+        Polynomial {
+            coefficient: coeffis,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Binary {
     One = 1,
     Zero = 0,
@@ -27,7 +115,7 @@ impl Binary {
 
 pub trait Random<T> {
     fn gen(&mut self) -> T;
-    fn genN<const N: usize>(&mut self) -> [T; N] {
+    fn gen_n<const N: usize>(&mut self) -> [T; N] {
         let l: [T; N] = array![_ => self.gen(); N];
         l
     }
@@ -86,7 +174,7 @@ impl BinaryDistribution<Uniform<i32>, ThreadRng> {
   Ex.  0.5 * 3
   = 100000.. * 3 = 100000.. = 0.5
 */
-#[derive(Debug, PartialEq,Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Decimal<U: Unsigned>(U);
 impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
     type Output = Decimal<U>;
@@ -257,6 +345,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn polynomial_new() {
+        let interger_pol = Polynomial::new([2, 3, 4, 5]);
+        let float_pol = Polynomial::new([3.2, 4.5, 5.6, 7.8]);
+        let decimal_pol = Polynomial::new([Decimal(2_u32), Decimal(5_u32)]);
+    }
+    #[test]
+    fn polynomial_add() {
+        let l_integer = Polynomial::new([2, 3, 4, 5]);
+        let r_integer = Polynomial::new([4, 5, 6, 7]);
+
+        assert!((l_integer + r_integer).coefficient == [6, 8, 10, 12]);
+
+        let l_dec = Polynomial::new([Decimal::from_f32(0.5), Decimal::from_f32(0.75)]);
+        let r_dec = Polynomial::new([Decimal::from_f32(0.75), Decimal::from_f32(0.5)]);
+
+        assert!((l_dec + r_dec).coefficient == [Decimal::from_f32(0.25), Decimal::from_f32(0.25)]);
+    }
+    #[test]
+    fn polynomial_schalar() {
+        let integer = Polynomial::new([2, 3, 4, 5]);
+
+        assert!((integer * 3).coefficient == [6, 9, 12, 15]);
+
+        let dec = Polynomial::new([Decimal::from_f32(0.5), Decimal::from_f32(0.75)]);
+
+        assert!((dec * 3).coefficient == [Decimal::from_f32(0.5), Decimal::from_f32(0.25)]);
+    }
+    #[test]
+    fn polynomial_mul() {
+        let l_f = Polynomial::new([2, 3, 4]);
+        let r_i = Polynomial::new([4, 5, 6]);
+
+        assert_eq!((l_f * r_i).coefficient, [-30, -2, 43]);
+
+        let l_d = Polynomial::new([Decimal::from_f32(0.5), Decimal::from_f32(0.75)]);
+        let r_i = Polynomial::new([2, 3]);
+
+        let acc = 100;
+        let res = (l_d * r_i).coefficient;
+        assert!(range_eq(res[0].0, Decimal::from_f32(0.75).0, acc));
+        assert!(range_eq(res[1].0, Decimal::from_f32(0.0).0, acc));
+    }
+
+    #[test]
     fn mod_guassian_run() {
         let mut mg = ModDistribution::gaussian(1.0);
 
@@ -304,16 +436,20 @@ mod tests {
     }
     #[test]
     fn decimal_to_f32() {
-        let test = |f: f32,g: f32| {
+        let test = |f: f32, g: f32| {
             let res = Decimal::from_f32(f);
-            assert!((res.to_f32().unwrap()-g).abs() < f32::EPSILON, "test for {}", f);
+            assert!(
+                (res.to_f32().unwrap() - g).abs() < f32::EPSILON,
+                "test for {}",
+                f
+            );
         };
 
-        test(0.5,0.5);
-        test(0.25,0.25);
-        test(-0.25,0.75);
-        test(0.4,0.4);
-        test(0.123,0.123);
+        test(0.5, 0.5);
+        test(0.25, 0.25);
+        test(-0.25, 0.75);
+        test(0.4, 0.4);
+        test(0.123, 0.123);
     }
     #[test]
     fn decimal_add() {
