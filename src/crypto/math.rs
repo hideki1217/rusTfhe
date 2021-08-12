@@ -2,20 +2,26 @@ use array_macro::array;
 use num::{traits::WrappingAdd, Float, Num, One, ToPrimitive, Unsigned, Zero};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use std::{ops::{Add, Mul, Neg, Sub}, process::Output};
+use std::ops::{Add, Mul, Neg, Sub};
 
-trait Ring<T>: Mul<T, Output = Self> + Add + Sized {}
+pub trait Ring<T>: Cross<T, Output = Self> + Add + Sized {}
+pub trait Cross<T> {
+    type Output;
+    fn cross(&self, rhs: &T) -> Self::Output;
+}
 /**
 P(X) = SUM_{i=0}^{N-1} coefficient[i]X^i
 を表す。
  */
-struct Polynomial<T, const N: usize> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Polynomial<T, const N: usize> {
     coefficient: [T; N],
 }
 impl<S, T, const N: usize> Ring<S> for Polynomial<T, N>
 where
     S: Copy,
     T: Copy + Mul<S, Output = T> + Add<Output = T>,
+    Polynomial<T, N>: Cross<S, Output = Self>,
 {
 }
 impl<S: Copy, T: Mul<S, Output = T> + Copy, const N: usize> Mul<S> for Polynomial<T, N> {
@@ -38,11 +44,11 @@ impl<
         S: Copy,
         T: Mul<S, Output = T> + Add<Output = T> + Sub<Output = T> + Copy + Zero,
         const N: usize,
-    > Mul<Polynomial<S, N>> for Polynomial<T, N>
+    > Cross<Polynomial<S, N>> for Polynomial<T, N>
 {
     type Output = Self;
 
-    fn mul(self, rhs: Polynomial<S, N>) -> Self::Output {
+    fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
         // TODO: FFTにするとO(nlog(n))、今はn^2
         let poly_cross = |l: &[T; N], r: &[S; N]| {
             let mut v = Vec::with_capacity(2 * N);
@@ -68,19 +74,19 @@ impl<
         }
     }
 }
-impl<T:Neg<Output=T>+Copy,const N:usize> Neg for Polynomial<T,N> {
+impl<T: Neg<Output = T> + Copy, const N: usize> Neg for Polynomial<T, N> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        let l : [T;N] = array![i=>-self.coefficient[i];N];
+        let l: [T; N] = array![i=>-self.coefficient[i];N];
         Polynomial::new(l)
     }
 }
-impl<T:Sub<Output=T>+Copy,const N:usize> Sub for Polynomial<T,N> {
+impl<T: Sub<Output = T> + Copy, const N: usize> Sub for Polynomial<T, N> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let l:[T;N] = array![i=>self.coefficient[i]-rhs.coefficient[i];N];
+        let l: [T; N] = array![i=>self.coefficient[i]-rhs.coefficient[i];N];
         Polynomial::new(l)
     }
 }
@@ -89,6 +95,12 @@ impl<T, const N: usize> Polynomial<T, N> {
         Polynomial {
             coefficient: coeffis,
         }
+    }
+}
+impl<T: Copy, const N: usize> Polynomial<T, N> {
+    #[inline]
+    pub fn coef_(&self, i: usize) -> T {
+        self.coefficient[i]
     }
 }
 
@@ -110,6 +122,18 @@ impl Binary {
             Binary::One => T::one(),
             Binary::Zero => T::zero(),
         }
+    }
+}
+impl ToPrimitive for Binary {
+    fn to_i64(&self) -> Option<i64> {
+        Some(self.to_u64()? as i64)
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        Some(match &self {
+            Binary::One => u64::one(),
+            Binary::Zero => u64::zero(),
+        })
     }
 }
 
@@ -158,6 +182,7 @@ impl<X: Distribution<i32>, R: Rng> Random<Binary> for BinaryDistribution<X, R> {
     }
 }
 impl BinaryDistribution<Uniform<i32>, ThreadRng> {
+    #[allow(dead_code)]
     pub fn uniform() -> BinaryDistribution<Uniform<i32>, ThreadRng> {
         BinaryDistribution {
             uniform: Uniform::new(0, 2),
@@ -346,9 +371,9 @@ mod tests {
 
     #[test]
     fn polynomial_new() {
-        let interger_pol = Polynomial::new([2, 3, 4, 5]);
-        let float_pol = Polynomial::new([3.2, 4.5, 5.6, 7.8]);
-        let decimal_pol = Polynomial::new([Decimal(2_u32), Decimal(5_u32)]);
+        let _interger_pol = Polynomial::new([2, 3, 4, 5]);
+        let _float_pol = Polynomial::new([3.2, 4.5, 5.6, 7.8]);
+        let _decimal_pol = Polynomial::new([Decimal(2_u32), Decimal(5_u32)]);
     }
     #[test]
     fn polynomial_add() {
@@ -377,13 +402,13 @@ mod tests {
         let l_f = Polynomial::new([2, 3, 4]);
         let r_i = Polynomial::new([4, 5, 6]);
 
-        assert_eq!((l_f * r_i).coefficient, [-30, -2, 43]);
+        assert_eq!((l_f.cross(&r_i)).coefficient, [-30, -2, 43]);
 
         let l_d = Polynomial::new([Decimal::from_f32(0.5), Decimal::from_f32(0.75)]);
         let r_i = Polynomial::new([2, 3]);
 
         let acc = 100;
-        let res = (l_d * r_i).coefficient;
+        let res = (l_d.cross(&r_i)).coefficient;
         assert!(range_eq(res[0].0, Decimal::from_f32(0.75).0, acc));
         assert!(range_eq(res[1].0, Decimal::from_f32(0.0).0, acc));
     }
