@@ -2,8 +2,7 @@ use std::ops::Neg;
 use array_macro::array;
 use num::ToPrimitive;
 
-use super::math::{Binary, Cross, ModDistribution, Polynomial, Random, Torus};
-
+use super::utils::math::{Binary, Cross, ModDistribution, Polynomial, Random, Torus};
 use super::digest::{Crypto, Encrypted};
 
 
@@ -99,6 +98,7 @@ impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRLWE {
 
 #[cfg(test)]
 mod tests {
+    use super::super::utils::*;
     use super::super::*;
     use super::*;
 

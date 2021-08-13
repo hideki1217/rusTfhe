@@ -1,7 +1,6 @@
 use num::{ToPrimitive, Zero};
 
-use super::math::{Binary, Random, Torus,ModDistribution};
-
+use super::utils::math::{Binary, Random, Torus,ModDistribution};
 use super::digest::{Crypto, Encrypted};
 
 pub struct TLWE<const N: usize>;
@@ -78,7 +77,7 @@ impl<const N: usize> Crypto<Binary> for TLWE<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::*;
+    use super::super::utils::*;
 
     #[test]
     fn tlwe_test() {
