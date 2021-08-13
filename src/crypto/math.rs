@@ -64,13 +64,13 @@ impl<
             v
         };
         // X^N+1で割ったあまりを返す
-        let decompose = |pol: Vec<T>| {
+        let modulo = |pol: Vec<T>| {
             let res: [T; N] = array![i=>if i<N-1 { pol[i]-pol[N+i] } else {pol[i]};N];
             res
         };
 
         Polynomial {
-            coefficient: decompose(poly_cross(&self.coefficient, &rhs.coefficient)),
+            coefficient: modulo(poly_cross(&self.coefficient, &rhs.coefficient)),
         }
     }
 }
@@ -95,6 +95,9 @@ impl<T, const N: usize> Polynomial<T, N> {
         Polynomial {
             coefficient: coeffis,
         }
+    }
+    pub fn coefficient(&self) -> &[T;N] {
+        &self.coefficient
     }
 }
 impl<T: Copy, const N: usize> Polynomial<T, N> {
@@ -341,30 +344,7 @@ impl Decimal<u32> {
     }
 }
 
-/**
-内積を定義するための配列ラップ
-ベクトル演算は下に実装
- */
-pub struct Array1<T: Num, const N: usize> {
-    items: [T; N],
-}
-impl<T: Num + Copy, const N: usize> Array1<T, N> {
-    fn new(items: [T; N]) -> Self {
-        Array1 { items }
-    }
-    fn dot(&self, rhs: &Array1<T, N>) -> T {
-        self.items
-            .iter()
-            .zip(rhs.items.iter())
-            .map(|(&x, &y)| x * y)
-            .fold(T::zero(), |sum, xy| sum + xy)
-    }
-}
-impl<T: Num + Copy, const N: usize> Default for Array1<T, N> {
-    fn default() -> Self {
-        Self::new([T::zero(); N])
-    }
-}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,7 +378,7 @@ mod tests {
         assert!((dec * 3).coefficient == [Decimal::from_f32(0.5), Decimal::from_f32(0.25)]);
     }
     #[test]
-    fn polynomial_mul() {
+    fn polynomial_cross() {
         let l_f = Polynomial::new([2, 3, 4]);
         let r_i = Polynomial::new([4, 5, 6]);
 
@@ -553,14 +533,6 @@ mod tests {
         test(-0.25);
         test(0.125);
         test(0.4);
-    }
-
-    #[test]
-    fn array1_dot() {
-        let x: Array1<u32, 3> = Array1::new([3, 4, 5]);
-        let y: Array1<u32, 3> = Array1::new([1, 2, 3]);
-
-        assert!(x.dot(&y) == 26)
     }
 
     fn range_eq<T: Num + PartialOrd>(result: T, expect: T, acc: T) -> bool {

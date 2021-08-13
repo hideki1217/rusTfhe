@@ -1,9 +1,28 @@
+use std::ops::{Add, Neg};
+
 use self::math::{Binary, Cross, ModDistribution, Polynomial, Random, Torus};
 use array_macro::array;
 use num::{ToPrimitive, Zero};
 
 mod math;
 
+pub struct Encrypted<Cipher, PublicKey>(Cipher, PublicKey);
+impl<S: Add<S>, T: Add<T>> Add for Encrypted<S, T> {
+    type Output = Encrypted<<S as Add<S>>::Output, <T as Add<T>>::Output>;
+    fn add(self, rhs: Self) -> Self::Output {
+        let Encrypted(b, a) = self;
+        let Encrypted(s, t) = rhs;
+        Encrypted(b + s, a + t)
+    }
+}
+impl<Cipher, PublicKey> Encrypted<Cipher, PublicKey> {
+    fn cipher(&self) -> &Cipher {
+        &self.0
+    }
+    fn p_key(&self) -> &PublicKey {
+        &self.1
+    }
+}
 pub trait Crypto<Item> {
     type Representation;
     type SecretKey;
@@ -14,7 +33,7 @@ pub trait Crypto<Item> {
         &self,
         s_key: &Self::SecretKey,
         rep: Self::Representation,
-    ) -> (Self::Cipher, Self::PublicKey);
+    ) -> Encrypted<Self::Cipher, Self::PublicKey>;
     fn do_decrypto(
         &self,
         s_key: &Self::SecretKey,
@@ -23,7 +42,11 @@ pub trait Crypto<Item> {
     ) -> Self::Representation;
     fn decode(&self, rep: Self::Representation) -> Item;
 
-    fn encrypto(&self, key: &Self::SecretKey, item: Item) -> (Self::Cipher, Self::PublicKey) {
+    fn encrypto(
+        &self,
+        key: &Self::SecretKey,
+        item: Item,
+    ) -> Encrypted<Self::Cipher, Self::PublicKey> {
         self.do_encrypto(key, self.encode(item))
     }
     fn decrypto(
@@ -36,24 +59,24 @@ pub trait Crypto<Item> {
     }
 }
 
-struct TLWE;
-impl TLWE {
+struct TLWE<const N: usize>;
+impl<const N: usize> TLWE<N> {
     const N: usize = 635;
     const ALPHA: f32 = 1e-15;
     fn new() -> Self {
         TLWE
     }
 }
-impl Default for TLWE {
+impl<const N: usize> Default for TLWE<N> {
     fn default() -> Self {
         Self::new()
     }
 }
-impl Crypto<math::Binary> for TLWE {
+impl<const N: usize> Crypto<math::Binary> for TLWE<N> {
     type Representation = Torus;
-    type SecretKey = [Binary; TLWE::N];
+    type SecretKey = [Binary; N];
     type Cipher = Torus;
-    type PublicKey = [Torus; TLWE::N];
+    type PublicKey = [Torus; N];
 
     fn encode(&self, item: Binary) -> Self::Representation {
         Torus::from_f32(match item {
@@ -65,11 +88,11 @@ impl Crypto<math::Binary> for TLWE {
         &self,
         key: &Self::SecretKey,
         rep: Self::Representation,
-    ) -> (Self::Cipher, Self::PublicKey) {
+    ) -> Encrypted<Self::Cipher, Self::PublicKey> {
         let mut unif = math::ModDistribution::uniform();
-        let mut norm = math::ModDistribution::gaussian(TLWE::ALPHA);
+        let mut norm = math::ModDistribution::gaussian(TLWE::<N>::ALPHA);
 
-        let a: [math::Torus; TLWE::N] = unif.gen_n();
+        let a: [math::Torus; N] = unif.gen_n();
         let m = rep;
         let e = norm.gen();
         let b = a
@@ -79,7 +102,7 @@ impl Crypto<math::Binary> for TLWE {
             .fold(math::Torus::zero(), |s, x| s + x)
             + e
             + m;
-        (b, a)
+        Encrypted(b, a)
     }
 
     fn do_decrypto(
@@ -111,9 +134,30 @@ pub struct TRLWE();
 impl TRLWE {
     #[allow(dead_code)]
     const N: usize = 1024;
-    const ALPHA: f32 = 1e-23;
+    const ALPHA: f32 = 0.000000119;
     pub fn new() -> Self {
         TRLWE()
+    }
+}
+impl<CipherT: Copy, PublicKeyT: Copy + Neg<Output = PublicKeyT>, const N: usize>
+    Encrypted<Polynomial<CipherT, N>, Polynomial<PublicKeyT, N>>
+{
+    /**
+    TRLWEのX^indexの部分だけ見ると、TLWEになっている。
+    そこを取り出す。
+    */
+    pub fn sample_extract_index(&self, index: usize) -> Encrypted<CipherT, [PublicKeyT; N]> {
+        let Encrypted(cipher, p_key) = self;
+        let a_: [PublicKeyT; N] = array![ i => {
+            if i <= index {
+                p_key.coef_(index-i)
+            }
+            else {
+                -p_key.coef_(N+index -i)
+            }
+        };N];
+        let b_ = cipher.coef_(index);
+        Encrypted(b_, a_)
     }
 }
 impl Default for TRLWE {
@@ -141,7 +185,7 @@ impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRLWE {
         &self,
         key: &Self::SecretKey,
         rep: Self::Representation,
-    ) -> (Self::Cipher, Self::PublicKey) {
+    ) -> Encrypted<Self::Cipher, Self::PublicKey> {
         let mut unif = ModDistribution::uniform();
         let mut norm = ModDistribution::gaussian(TRLWE::ALPHA);
 
@@ -150,7 +194,7 @@ impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRLWE {
 
         let b = a.cross(&key) + rep + e;
 
-        (b, a)
+        Encrypted(b, a)
     }
 
     fn do_decrypto(
@@ -181,13 +225,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn trlwe_sample_extract_index() {
+        let mut b_unif = math::BinaryDistribution::uniform();
+        let trlwe = TRLWE::new();
+        let tlwe: TLWE<{ TRLWE::N }> = TLWE::new();
+
+        let mut test = |item: Polynomial<Binary, { TRLWE::N }>| {
+            let s_key = Polynomial::new(b_unif.gen_n::<{ TRLWE::N }>());
+            let encrypted = trlwe.encrypto(&s_key, item.clone());
+
+            let Encrypted(cipher, p_key) = &encrypted;
+            let res_trlwe = trlwe.decrypto(&s_key, &p_key, cipher.clone());
+            assert_eq!(res_trlwe, item, "Trlwe is Wrong,");
+            for i in 0..TRLWE::N {
+                let Encrypted(cipher, p_key) = encrypted.sample_extract_index(i);
+                let res_tlwe = tlwe.decrypto(&s_key.coefficient(), &p_key, cipher);
+
+                assert_eq!(
+                    res_tlwe,
+                    res_trlwe.coef_(i),
+                    "Wrong culc. trlwe'res[{}] != tlwe's_sample_res",
+                    i
+                );
+            }
+        };
+
+        let mut b_unif = math::BinaryDistribution::uniform();
+        test(Polynomial::new(b_unif.gen_n::<{ TRLWE::N }>()))
+    }
+
+    #[test]
     fn trlwe_test() {
         let mut b_unif = math::BinaryDistribution::uniform();
         let trlwe = TRLWE::new();
 
         let mut test = |item: Polynomial<Binary, { TRLWE::N }>| {
             let s_key = Polynomial::new(b_unif.gen_n::<{ TRLWE::N }>());
-            let (cipher, p_key) = trlwe.encrypto(&s_key, item.clone());
+            let Encrypted(cipher, p_key) = trlwe.encrypto(&s_key, item.clone());
             let res = trlwe.decrypto(&s_key, &p_key, cipher.clone());
 
             assert!(res == item, "cipher={:?}\np_key={:?}", cipher, p_key);
@@ -205,8 +279,8 @@ mod tests {
         let tlwe = TLWE::new();
 
         let mut test = |item: Binary| {
-            let s_key: [Binary; TLWE::N] = b_uniform.gen_n();
-            let (cipher, p_key) = tlwe.encrypto(&s_key, item);
+            let s_key: [Binary; TLWE::<0>::N] = b_uniform.gen_n();
+            let Encrypted(cipher, p_key) = tlwe.encrypto(&s_key, item);
             let res = tlwe.decrypto(&s_key, &p_key, cipher);
 
             assert!(res == item, "cipher={:?}\np_key={:?}", cipher, p_key);
