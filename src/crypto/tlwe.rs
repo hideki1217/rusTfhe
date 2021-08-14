@@ -6,7 +6,7 @@ use super::digest::{Crypto, Encrypted};
 pub struct TLWE<const N: usize>;
 impl<const N: usize> TLWE<N> {
     const N: usize = 635;
-    const ALPHA: f32 = 1e-15;
+    const ALPHA: f32 = 0.000030518; // 2-{-15}
     pub fn new() -> Self {
         TLWE
     }

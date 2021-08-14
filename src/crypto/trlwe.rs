@@ -10,7 +10,7 @@ pub struct TRLWE();
 impl TRLWE {
     #[allow(dead_code)]
     const N: usize = 1024;
-    const ALPHA: f32 = 0.000000119;
+    const ALPHA: f32 = 0.000000119;// 2^{-23}
     pub fn new() -> Self {
         TRLWE()
     }
