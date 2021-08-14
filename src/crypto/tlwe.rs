@@ -1,7 +1,7 @@
 use num::{ToPrimitive, Zero};
 
-use super::utils::math::{Binary, Random, Torus,ModDistribution};
 use super::digest::{Crypto, Encrypted};
+use super::utils::math::{Binary, ModDistribution, Random, Torus};
 
 pub struct TLWE<const N: usize>;
 impl<const N: usize> TLWE<N> {
@@ -10,6 +10,20 @@ impl<const N: usize> TLWE<N> {
     pub fn new() -> Self {
         TLWE
     }
+    pub fn binary2torus(bin: Binary) -> Torus {
+        Torus::from_f32(match bin {
+            Binary::One => 1.0 / 8.0,
+            Binary::Zero => -1.0 / 8.0,
+        })
+    }
+    pub fn torus2binary(torus: Torus) -> Binary {
+        let f = torus.to_f32().unwrap();
+        if f < 0.5 {
+            Binary::One
+        } else {
+            Binary::Zero
+        }
+    }
 }
 impl<const N: usize> Default for TLWE<N> {
     fn default() -> Self {
@@ -17,27 +31,42 @@ impl<const N: usize> Default for TLWE<N> {
     }
 }
 impl<const N: usize> Crypto<Binary> for TLWE<N> {
-    type Representation = Torus;
     type SecretKey = [Binary; N];
     type Cipher = Torus;
     type PublicKey = [Torus; N];
 
-    fn encode(&self, item: Binary) -> Self::Representation {
-        Torus::from_f32(match item {
-            Binary::One => 1.0 / 8.0,
-            Binary::Zero => -1.0 / 8.0,
-        })
-    }
-    fn do_encrypto(
+    fn encrypto(
         &self,
         key: &Self::SecretKey,
-        rep: Self::Representation,
+        item: Binary,
+    ) -> Encrypted<Self::Cipher, Self::PublicKey> {
+        self.encrypto(key, TLWE::<N>::binary2torus(item))
+    }
+
+    fn decrypto(
+        &self,
+        s_key: &Self::SecretKey,
+        p_key: &Self::PublicKey,
+        cipher: Self::Cipher,
+    ) -> Binary {
+        TLWE::<N>::torus2binary(self.decrypto(s_key, p_key, cipher))
+    }
+}
+impl<const N: usize> Crypto<Torus> for TLWE<N> {
+    type SecretKey = [Binary; N];
+    type Cipher = Torus;
+    type PublicKey = [Torus; N];
+
+    fn encrypto(
+        &self,
+        key: &Self::SecretKey,
+        item: Torus,
     ) -> Encrypted<Self::Cipher, Self::PublicKey> {
         let mut unif = ModDistribution::uniform();
         let mut norm = ModDistribution::gaussian(TLWE::<N>::ALPHA);
 
         let a: [Torus; N] = unif.gen_n();
-        let m = rep;
+        let m = item;
         let e = norm.gen();
         let b = a
             .iter()
@@ -49,12 +78,12 @@ impl<const N: usize> Crypto<Binary> for TLWE<N> {
         Encrypted(b, a)
     }
 
-    fn do_decrypto(
+    fn decrypto(
         &self,
         s_key: &Self::SecretKey,
         p_key: &Self::PublicKey,
         cipher: Self::Cipher,
-    ) -> Self::Representation {
+    ) -> Torus {
         let a_cross_s = p_key
             .iter()
             .zip(s_key.iter())
@@ -64,20 +93,12 @@ impl<const N: usize> Crypto<Binary> for TLWE<N> {
 
         m_with_e
     }
-    fn decode(&self, rep: Self::Representation) -> Binary {
-        let f = rep.to_f32().unwrap();
-        if f < 0.5 {
-            Binary::One
-        } else {
-            Binary::Zero
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::utils::*;
+    use super::*;
 
     #[test]
     fn tlwe_test() {
@@ -87,7 +108,7 @@ mod tests {
         let mut test = |item: Binary| {
             let s_key: [Binary; TLWE::<0>::N] = b_uniform.gen_n();
             let Encrypted(cipher, p_key) = tlwe.encrypto(&s_key, item);
-            let res = tlwe.decrypto(&s_key, &p_key, cipher);
+            let res: Binary = tlwe.decrypto(&s_key, &p_key, cipher);
 
             assert!(res == item, "cipher={:?}\np_key={:?}", cipher, p_key);
         };
