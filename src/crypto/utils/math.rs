@@ -1,5 +1,8 @@
 use array_macro::array;
-use num::{traits::WrappingAdd, Float, Num, One, ToPrimitive, Unsigned, Zero};
+use num::{
+    traits::{Pow, WrappingAdd},
+    Float, Num, One, ToPrimitive, Unsigned, Zero,
+};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::ops::{Add, Mul, Neg, Sub};
@@ -96,7 +99,7 @@ impl<T, const N: usize> Polynomial<T, N> {
             coefficient: coeffis,
         }
     }
-    pub fn coefficient(&self) -> &[T;N] {
+    pub fn coefficient(&self) -> &[T; N] {
         &self.coefficient
     }
 }
@@ -104,6 +107,19 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
     #[inline]
     pub fn coef_(&self, i: usize) -> T {
         self.coefficient[i]
+    }
+}
+impl<const N: usize> Polynomial<Decimal<u32>, N> {
+    pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
+        assert!(u32::BITS % bits == 0, "need to be divider of u32::BITS");
+
+        let res: [[i32; L]; N] = array![ i => {
+            self.coef_(i).decomposition(bits)
+        }; N];
+
+        array![ i => {
+            Polynomial::new(array![ j => res[j][i]; N])
+        }; L]
     }
 }
 
@@ -342,8 +358,41 @@ impl Decimal<u32> {
         }
         Decimal(x)
     }
-}
+    /// 2進表現から2^bits進表現に変換
+    /// N=u32::BITSを2^bitsで表現したときの有効桁数
+    pub fn decomposition<const L: usize>(self, bits: u32) -> [i32; L] {
+        assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
+        const TOTAL: u32 = u32::BITS;
+        let bg = 2_u32.pow(bits);
+        let mask = bg - 1;
+        let round = TOTAL - (L as u32) * bits > 0;
 
+        let Decimal(u) = self;
+        // 丸める
+        let u = u + if round {
+            2_u32.pow(TOTAL - (L as u32) * bits - 1)
+        } else {
+            0
+        };
+        // res={a_i}, a_i in [0,bg)
+        let u_res = array![i => {
+            (u >> (TOTAL - bits*((i+1) as u32))) & mask
+        };L];
+        // res={a_i}, a_i in [-bg/2,bg/2)
+        let mut i_res = [i32::zero(); L];
+        for i in (0..L).rev() {
+            i_res[i] = if u_res[i] >= bg / 2 {
+                if i > 0 {
+                    i_res[i - 1] -= 1;
+                }
+                (u_res[i] as i32) - (bg as i32)
+            } else {
+                u_res[i] as i32
+            }
+        }
+        i_res
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -391,6 +440,30 @@ mod tests {
         let res = (l_d.cross(&r_i)).coefficient;
         assert!(range_eq(res[0].0, Decimal::from_f32(0.75).0, acc));
         assert!(range_eq(res[1].0, Decimal::from_f32(0.0).0, acc));
+    }
+    #[test]
+    fn polynomial_decomposition() {
+        let pol = Polynomial::new([Decimal(0x8000_0000_u32)]);
+        let res = pol.decomposition::<7>(4);
+        assert_eq!(
+            res,
+            {
+                let coef = pol.coef_(0);
+                let decomp = coef.decomposition::<7>(4);
+                array![ i => {
+                    Polynomial::new([decomp[i]])
+                };7]
+            },
+            "要素数1のPolynomialを展開"
+        );
+
+        let pol = Polynomial::new([Decimal(0x0000_0001_u32), Decimal(0x0002_8000_u32)]);
+        let res = pol.decomposition::<2>(16);
+        assert_eq!(
+            res,
+            [Polynomial::new([0, 2]), Polynomial::new([1, -32768])],
+            "要素数2のPolynomialを展開"
+        );
     }
 
     #[test]
@@ -533,6 +606,24 @@ mod tests {
         test(-0.25);
         test(0.125);
         test(0.4);
+    }
+    #[test]
+    fn decimal_decomposition() {
+        let dec = Decimal(0x80000000_u32);
+        let res = dec.decomposition::<32>(1);
+        assert_eq!(
+            res,
+            [
+                -1_i32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0
+            ],
+            "test1"
+        );
+
+        let res = dec.decomposition::<8>(4);
+        assert_eq!(res, [-8_i32, 0, 0, 0, 0, 0, 0, 0], "test2");
+        let res = dec.decomposition::<7>(4);
+        assert_eq!(res, [-8_i32, 0, 0, 0, 0, 0, 0], "test2");
     }
 
     fn range_eq<T: Num + PartialOrd>(result: T, expect: T, acc: T) -> bool {
