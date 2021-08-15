@@ -1,7 +1,9 @@
 use num::{ToPrimitive, Zero};
 
+use math_utils::torus;
+
 use super::digest::{Crypto, Encrypted};
-use super::utils::math::{Binary, ModDistribution, Random, Torus};
+use math_utils::{Binary, ModDistribution, Random, Torus};
 
 pub struct TLWE<const N: usize>;
 impl<const N: usize> TLWE<N> {
@@ -11,7 +13,7 @@ impl<const N: usize> TLWE<N> {
         TLWE
     }
     pub fn binary2torus(bin: Binary) -> Torus {
-        Torus::from_f32(match bin {
+        torus!(match bin {
             Binary::One => 1.0 / 8.0,
             Binary::Zero => -1.0 / 8.0,
         })
@@ -97,12 +99,12 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::utils::*;
+    use math_utils::*;
     use super::*;
 
     #[test]
     fn tlwe_test() {
-        let mut b_uniform = math::BinaryDistribution::uniform();
+        let mut b_uniform = BinaryDistribution::uniform();
         let tlwe = TLWE::new();
 
         let mut test = |item: Binary| {

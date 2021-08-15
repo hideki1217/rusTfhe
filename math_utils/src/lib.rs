@@ -1,11 +1,27 @@
 use array_macro::array;
 use num::{
-    traits::{Pow, WrappingAdd},
+    traits::WrappingAdd,
     Float, Num, One, ToPrimitive, Unsigned, Zero,
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::ops::{Add, Mul, Neg, Sub};
+
+
+//Macro
+#[macro_export]
+macro_rules! pol {
+    ($e:expr) => {
+        Polynomial::new($e)
+    };
+}
+#[macro_export]
+macro_rules! torus {
+    ($e:expr) => {
+        Torus::from($e)
+    };
+}
+
 
 pub trait Ring<T>: Cross<T, Output = Self> + Add + Sized {}
 pub trait Cross<T> {
@@ -82,7 +98,7 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Neg for Polynomial<T, N> {
 
     fn neg(self) -> Self::Output {
         let l: [T; N] = array![i=>-self.coefficient[i];N];
-        Polynomial::new(l)
+        pol!(l)
     }
 }
 impl<T: Sub<Output = T> + Copy, const N: usize> Sub for Polynomial<T, N> {
@@ -90,7 +106,7 @@ impl<T: Sub<Output = T> + Copy, const N: usize> Sub for Polynomial<T, N> {
 
     fn sub(self, rhs: Self) -> Self::Output {
         let l: [T; N] = array![i=>self.coefficient[i]-rhs.coefficient[i];N];
-        Polynomial::new(l)
+        pol!(l)
     }
 }
 impl<T, const N: usize> Polynomial<T, N> {
@@ -118,7 +134,7 @@ impl<const N: usize> Polynomial<Decimal<u32>, N> {
         }; N];
 
         array![ i => {
-            Polynomial::new(array![ j => res[j][i]; N])
+            pol!(array![ j => res[j][i]; N])
         }; L]
     }
 }
@@ -171,7 +187,7 @@ pub struct ModDistribution<X: Distribution<f32>, R: Rng> {
 impl<X: Distribution<f32>, R: Rng> Random<Decimal<u32>> for ModDistribution<X, R> {
     fn gen(&mut self) -> Decimal<u32> {
         let r = self.distr.sample(&mut self.rng);
-        Decimal::from_f32(r)
+        torus!(r)
     }
 }
 impl ModDistribution<Normal<f32>, ThreadRng> {
@@ -335,9 +351,9 @@ impl Sub for Decimal<u32> {
         self + (-rhs)
     }
 }
-impl Decimal<u32> {
+impl From<f32> for Decimal<u32> {
     // floatのメモリ的に有効数字2進24桁なので、その範囲で構成。
-    pub fn from_f32(val: f32) -> Self {
+    fn from(val: f32) -> Self {
         let mut x: u32 = 0;
         {
             let f_acc = f32::MANTISSA_DIGITS;
@@ -358,6 +374,13 @@ impl Decimal<u32> {
         }
         Decimal(x)
     }
+}
+impl From<f64> for Decimal<u32> {
+    fn from(val: f64) -> Self {
+        Decimal::from(val.to_f32().unwrap())
+    }
+}
+impl Decimal<u32> {
     /// 2進表現から2^bits進表現に変換
     /// N=u32::BITSを2^bitsで表現したときの有効桁数
     pub fn decomposition<const L: usize>(self, bits: u32) -> [i32; L] {
@@ -400,50 +423,50 @@ mod tests {
 
     #[test]
     fn polynomial_new() {
-        let _interger_pol = Polynomial::new([2, 3, 4, 5]);
-        let _float_pol = Polynomial::new([3.2, 4.5, 5.6, 7.8]);
-        let _decimal_pol = Polynomial::new([Decimal(2_u32), Decimal(5_u32)]);
+        let _interger_pol = pol!([2, 3, 4, 5]);
+        let _float_pol = pol!([3.2, 4.5, 5.6, 7.8]);
+        let _decimal_pol = pol!([Decimal(2_u32), Decimal(5_u32)]);
     }
     #[test]
     fn polynomial_add() {
-        let l_integer = Polynomial::new([2, 3, 4, 5]);
-        let r_integer = Polynomial::new([4, 5, 6, 7]);
+        let l_integer = pol!([2, 3, 4, 5]);
+        let r_integer = pol!([4, 5, 6, 7]);
 
         assert!((l_integer + r_integer).coefficient == [6, 8, 10, 12]);
 
-        let l_dec = Polynomial::new([Decimal::from_f32(0.5), Decimal::from_f32(0.75)]);
-        let r_dec = Polynomial::new([Decimal::from_f32(0.75), Decimal::from_f32(0.5)]);
+        let l_dec = pol!([torus!(0.5), torus!(0.75)]);
+        let r_dec = pol!([torus!(0.75), torus!(0.5)]);
 
-        assert!((l_dec + r_dec).coefficient == [Decimal::from_f32(0.25), Decimal::from_f32(0.25)]);
+        assert!((l_dec + r_dec).coefficient == [torus!(0.25), torus!(0.25)]);
     }
     #[test]
     fn polynomial_schalar() {
-        let integer = Polynomial::new([2, 3, 4, 5]);
+        let integer = pol!([2, 3, 4, 5]);
 
         assert!((integer * 3).coefficient == [6, 9, 12, 15]);
 
-        let dec = Polynomial::new([Decimal::from_f32(0.5), Decimal::from_f32(0.75)]);
+        let dec = pol!([torus!(0.5), torus!(0.75)]);
 
-        assert!((dec * 3).coefficient == [Decimal::from_f32(0.5), Decimal::from_f32(0.25)]);
+        assert!((dec * 3).coefficient == [torus!(0.5), torus!(0.25)]);
     }
     #[test]
     fn polynomial_cross() {
-        let l_f = Polynomial::new([2, 3, 4]);
-        let r_i = Polynomial::new([4, 5, 6]);
+        let l_f = pol!([2, 3, 4]);
+        let r_i = pol!([4, 5, 6]);
 
         assert_eq!((l_f.cross(&r_i)).coefficient, [-30, -2, 43]);
 
-        let l_d = Polynomial::new([Decimal::from_f32(0.5), Decimal::from_f32(0.75)]);
-        let r_i = Polynomial::new([2, 3]);
+        let l_d = pol!([torus!(0.5), torus!(0.75)]);
+        let r_i = pol!([2, 3]);
 
         let acc = 100;
         let res = (l_d.cross(&r_i)).coefficient;
-        assert!(range_eq(res[0].0, Decimal::from_f32(0.75).0, acc));
-        assert!(range_eq(res[1].0, Decimal::from_f32(0.0).0, acc));
+        assert!(range_eq(res[0].0, torus!(0.75).0, acc));
+        assert!(range_eq(res[1].0, torus!(0.0).0, acc));
     }
     #[test]
     fn polynomial_decomposition() {
-        let pol = Polynomial::new([Decimal(0x8000_0000_u32)]);
+        let pol = pol!([Decimal(0x8000_0000_u32)]);
         let res = pol.decomposition::<7>(4);
         assert_eq!(
             res,
@@ -451,17 +474,17 @@ mod tests {
                 let coef = pol.coef_(0);
                 let decomp = coef.decomposition::<7>(4);
                 array![ i => {
-                    Polynomial::new([decomp[i]])
+                    pol!([decomp[i]])
                 };7]
             },
             "要素数1のPolynomialを展開"
         );
 
-        let pol = Polynomial::new([Decimal(0x0000_0001_u32), Decimal(0x0002_8000_u32)]);
+        let pol = pol!([Decimal(0x0000_0001_u32), Decimal(0x0002_8000_u32)]);
         let res = pol.decomposition::<2>(16);
         assert_eq!(
             res,
-            [Polynomial::new([0, 2]), Polynomial::new([1, -32768])],
+            [pol!([0, 2]), pol!([1, -32768])],
             "要素数2のPolynomialを展開"
         );
     }
@@ -502,7 +525,7 @@ mod tests {
     #[test]
     fn decimal_from_f32() {
         let test = |f: f32, respect: u32| {
-            let Decimal(res) = Decimal::from_f32(f);
+            let Decimal(res) = torus!(f);
             assert_eq!(res, respect, "test for {}", f);
         };
 
@@ -515,7 +538,7 @@ mod tests {
     #[test]
     fn decimal_to_f32() {
         let test = |f: f32, g: f32| {
-            let res = Decimal::from_f32(f);
+            let res = torus!(f);
             assert!(
                 (res.to_f32().unwrap() - g).abs() < f32::EPSILON,
                 "test for {}",
@@ -532,10 +555,10 @@ mod tests {
     #[test]
     fn decimal_add() {
         let test = |x: f32, y: f32, z: f32| {
-            let dx = Decimal::from_f32(x);
-            let dy = Decimal::from_f32(y);
+            let dx = torus!(x);
+            let dy = torus!(y);
             let Decimal(result) = dx + dy;
-            let Decimal(expect) = Decimal::from_f32(z);
+            let Decimal(expect) = torus!(z);
 
             assert_eq!(
                 result,
@@ -562,9 +585,9 @@ mod tests {
         let acc: u32 = 2000; // これくらいの精度は出る。有効数字6桁くらい
 
         let test = |x: f32, y: u32, z: f32| {
-            let dx = Decimal::from_f32(x);
+            let dx = torus!(x);
             let Decimal(result) = dx * y;
-            let Decimal(respect) = Decimal::from_f32(z);
+            let Decimal(respect) = torus!(z);
 
             assert!(
                 range_eq(result, respect, acc),
@@ -590,8 +613,8 @@ mod tests {
         let test = |x: f32| {
             let acc: u32 = 100;
 
-            let dec = Decimal::from_f32(x);
-            let Decimal(expect) = Decimal::from_f32(-x);
+            let dec = torus!(x);
+            let Decimal(expect) = torus!(-x);
             let Decimal(result) = -dec;
 
             assert!(

@@ -21,6 +21,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "crypto"
+version = "0.1.0"
+dependencies = [
+ "array-macro",
+ "math_utils",
+ "num",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -29,16 +38,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "wasi",
-]
-
-[[package]]
-name = "homo_nand"
-version = "0.1.0"
-dependencies = [
- "array-macro",
- "num",
- "rand",
- "rand_distr",
 ]
 
 [[package]]
@@ -52,6 +51,16 @@ name = "libm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
+
+[[package]]
+name = "math_utils"
+version = "0.1.0"
+dependencies = [
+ "array-macro",
+ "num",
+ "rand",
+ "rand_distr",
+]
 
 [[package]]
 name = "num"
