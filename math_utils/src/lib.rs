@@ -32,7 +32,7 @@ pub trait Cross<T> {
 P(X) = SUM_{i=0}^{N-1} coefficient[i]X^i
 を表す。
  */
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq,Copy)]
 pub struct Polynomial<T, const N: usize> {
     coefficient: [T; N],
 }
@@ -107,6 +107,14 @@ impl<T: Sub<Output = T> + Copy, const N: usize> Sub for Polynomial<T, N> {
     fn sub(self, rhs: Self) -> Self::Output {
         let l: [T; N] = array![i=>self.coefficient[i]-rhs.coefficient[i];N];
         pol!(l)
+    }
+}
+impl<T:Zero+Copy,const N:usize> Zero for Polynomial<T,N> {
+    fn zero() -> Self {
+        pol!([T::zero();N])
+    }
+    fn is_zero(&self) -> bool {
+        self.coefficient().iter().all(|s| s.is_zero())
     }
 }
 impl<T, const N: usize> Polynomial<T, N> {
