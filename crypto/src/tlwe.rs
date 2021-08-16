@@ -2,6 +2,8 @@ use num::{ToPrimitive, Zero};
 
 use math_utils::torus;
 
+use crate::digest::CryptoCore;
+
 use super::digest::{Crypto, Encrypted};
 use math_utils::{Binary, ModDistribution, Random, Torus};
 
@@ -32,38 +34,32 @@ impl<const N: usize> Default for TLWE<N> {
         Self::new()
     }
 }
+impl<const N: usize> CryptoCore for TLWE<N> {
+    type Representation = Encrypted<Torus, [Torus; N]>;
+}
 impl<const N: usize> Crypto<Binary> for TLWE<N> {
     type SecretKey = [Binary; N];
-    type Cipher = Torus;
-    type PublicKey = [Torus; N];
 
     fn encrypto(
         &self,
         key: &Self::SecretKey,
         item: Binary,
-    ) -> Encrypted<Self::Cipher, Self::PublicKey> {
+    ) -> <Self as CryptoCore>::Representation {
         self.encrypto(key, TLWE::<N>::binary2torus(item))
     }
 
     fn decrypto(
         &self,
         s_key: &Self::SecretKey,
-        p_key: &Self::PublicKey,
-        cipher: Self::Cipher,
+        rep: <Self as CryptoCore>::Representation,
     ) -> Binary {
-        TLWE::<N>::torus2binary(self.decrypto(s_key, p_key, cipher))
+        TLWE::<N>::torus2binary(self.decrypto(s_key, rep))
     }
 }
 impl<const N: usize> Crypto<Torus> for TLWE<N> {
     type SecretKey = [Binary; N];
-    type Cipher = Torus;
-    type PublicKey = [Torus; N];
 
-    fn encrypto(
-        &self,
-        key: &Self::SecretKey,
-        item: Torus,
-    ) -> Encrypted<Self::Cipher, Self::PublicKey> {
+    fn encrypto(&self, key: &Self::SecretKey, item: Torus) -> <Self as CryptoCore>::Representation {
         let mut unif = ModDistribution::uniform();
         let mut norm = ModDistribution::gaussian(TLWE::<N>::ALPHA);
 
@@ -73,7 +69,7 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
         let b = a
             .iter()
             .zip(key.iter())
-            .map(|(&a, &b)| a * b.to::<u32>())
+            .map(|(&a, &b)| a * b)
             .fold(Torus::zero(), |s, x| s + x)
             + e
             + m;
@@ -83,13 +79,13 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
     fn decrypto(
         &self,
         s_key: &Self::SecretKey,
-        p_key: &Self::PublicKey,
-        cipher: Self::Cipher,
+        rep: <Self as CryptoCore>::Representation,
     ) -> Torus {
+        let (cipher, p_key) = rep.get_and_drop();
         let a_cross_s = p_key
             .iter()
             .zip(s_key.iter())
-            .map(|(&a, &b)| a * b.to::<i32>())
+            .map(|(&a, &b)| a * b)
             .fold(Torus::zero(), |s, x| s + x);
         let m_with_e = cipher - a_cross_s;
 
@@ -99,8 +95,8 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
 
 #[cfg(test)]
 mod tests {
-    use math_utils::*;
     use super::*;
+    use math_utils::*;
 
     #[test]
     fn tlwe_test() {
@@ -109,10 +105,10 @@ mod tests {
 
         let mut test = |item: Binary| {
             let s_key: [Binary; TLWE::<0>::N] = b_uniform.gen_n();
-            let Encrypted(cipher, p_key) = tlwe.encrypto(&s_key, item);
-            let res: Binary = tlwe.decrypto(&s_key, &p_key, cipher);
+            let rep = tlwe.encrypto(&s_key, item);
+            let res: Binary = tlwe.decrypto(&s_key, rep);
 
-            assert!(res == item, "cipher={:?}\np_key={:?}", cipher, p_key);
+            assert!(res == item, "tlwe failed");
         };
 
         for i in 0..100 {

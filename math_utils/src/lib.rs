@@ -1,12 +1,11 @@
 use array_macro::array;
-use num::{
-    traits::WrappingAdd,
-    Float, Num, One, ToPrimitive, Unsigned, Zero,
-};
+use num::{traits::WrappingAdd, Float, Num, One, ToPrimitive, Unsigned, Zero};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use std::ops::{Add, Mul, Neg, Sub};
-
+use std::{
+    fmt::Display,
+    ops::{Add, Mul, Neg, Sub},
+};
 
 //Macro
 #[macro_export]
@@ -22,7 +21,6 @@ macro_rules! torus {
     };
 }
 
-
 pub trait Ring<T>: Cross<T, Output = Self> + Add + Sized {}
 pub trait Cross<T> {
     type Output;
@@ -32,7 +30,7 @@ pub trait Cross<T> {
 P(X) = SUM_{i=0}^{N-1} coefficient[i]X^i
 を表す。
  */
-#[derive(Debug, Clone, PartialEq,Copy)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Polynomial<T, const N: usize> {
     coefficient: [T; N],
 }
@@ -109,9 +107,9 @@ impl<T: Sub<Output = T> + Copy, const N: usize> Sub for Polynomial<T, N> {
         pol!(l)
     }
 }
-impl<T:Zero+Copy,const N:usize> Zero for Polynomial<T,N> {
+impl<T: Zero + Copy, const N: usize> Zero for Polynomial<T, N> {
     fn zero() -> Self {
-        pol!([T::zero();N])
+        pol!([T::zero(); N])
     }
     fn is_zero(&self) -> bool {
         self.coefficient().iter().all(|s| s.is_zero())
@@ -135,8 +133,6 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
 }
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
     pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
-        assert!(u32::BITS % bits == 0, "need to be divider of u32::BITS");
-
         let res: [[i32; L]; N] = array![ i => {
             self.coef_(i).decomposition(bits)
         }; N];
@@ -177,6 +173,11 @@ impl ToPrimitive for Binary {
             Binary::One => u64::one(),
             Binary::Zero => u64::zero(),
         })
+    }
+}
+impl Display for Binary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_u64().unwrap().fmt(f)
     }
 }
 
@@ -244,6 +245,7 @@ impl BinaryDistribution<Uniform<i32>, ThreadRng> {
 */
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Decimal<U: Unsigned>(U);
+pub type Torus = Decimal<u32>;
 impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
     type Output = Decimal<U>;
 
@@ -251,12 +253,26 @@ impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
         Decimal(self.0.wrapping_add(&rhs.0))
     }
 }
-pub type Torus = Decimal<u32>;
-impl<T: ToPrimitive> Mul<T> for Decimal<u32> {
-    type Output = Decimal<u32>;
-
-    fn mul(self, rhs: T) -> Self::Output {
+impl Mul<u32> for Decimal<u32> {
+    type Output = Self;
+    fn mul(self, rhs: u32) -> Self::Output {
         Decimal(self.0.wrapping_mul(rhs.to_u32().unwrap()))
+    }
+}
+impl Mul<i32> for Decimal<u32> {
+    type Output = Self;
+    fn mul(self, rhs: i32) -> Self::Output {
+        if rhs < 0 {
+            -(self * rhs as u32)
+        } else {
+            self * rhs as u32
+        }
+    }
+}
+impl Mul<Binary> for Decimal<u32> {
+    type Output = Self;
+    fn mul(self, rhs: Binary) -> Self::Output {
+        self * rhs.to_u32().unwrap()
     }
 }
 impl Neg for Decimal<u32> {
@@ -338,11 +354,6 @@ impl ToPrimitive for Decimal<u32> {
         }
     }
 }
-impl One for Decimal<u32> {
-    fn one() -> Self {
-        Decimal(u32::MAX)
-    }
-}
 impl Zero for Decimal<u32> {
     fn zero() -> Self {
         Decimal(u32::zero())
@@ -388,11 +399,17 @@ impl From<f64> for Decimal<u32> {
         Decimal::from(val.to_f32().unwrap())
     }
 }
+impl Display for Decimal<u32> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_f32().unwrap().fmt(f)
+    }
+}
 impl Decimal<u32> {
     /// 2進表現から2^bits進表現に変換
     /// N=u32::BITSを2^bitsで表現したときの有効桁数
     pub fn decomposition<const L: usize>(self, bits: u32) -> [i32; L] {
         assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
+
         const TOTAL: u32 = u32::BITS;
         let bg = 2_u32.pow(bits);
         let mask = bg - 1;
@@ -467,10 +484,10 @@ mod tests {
         let l_d = pol!([torus!(0.5), torus!(0.75)]);
         let r_i = pol!([2, 3]);
 
-        let acc = 100;
-        let res = (l_d.cross(&r_i)).coefficient;
-        assert!(range_eq(res[0].0, torus!(0.75).0, acc));
-        assert!(range_eq(res[1].0, torus!(0.0).0, acc));
+        let acc: f32 = 1e-6;
+        let res = l_d.cross(&r_i);
+        assert!(torus_range_eq(res.coef_(0), torus!(0.75), acc));
+        assert!(torus_range_eq(res.coef_(1), torus!(0.0), acc));
     }
     #[test]
     fn polynomial_decomposition() {
@@ -562,21 +579,21 @@ mod tests {
     }
     #[test]
     fn decimal_add() {
+        let acc = 1e-6;
         let test = |x: f32, y: f32, z: f32| {
             let dx = torus!(x);
             let dy = torus!(y);
-            let Decimal(result) = dx + dy;
-            let Decimal(expect) = torus!(z);
+            let result = dx + dy;
+            let expect = torus!(z);
 
-            assert_eq!(
-                result,
-                expect,
-                "test for {}+{} == {} ?\n result={:?},respect={:?}",
+            assert!(
+                torus_range_eq(result, expect, acc),
+                "test for {}+{} == {} ?\n result={},respect={}",
                 x,
                 y,
                 z,
-                Decimal(result),
-                Decimal(expect)
+                result,
+                expect,
             );
         };
 
@@ -590,46 +607,83 @@ mod tests {
     }
     #[test]
     fn decimal_mul() {
-        let acc: u32 = 2000; // これくらいの精度は出る。有効数字6桁くらい
+        let acc: f32 = 1e-6; // これくらいの精度は出る。有効数字6桁くらい
 
-        let test = |x: f32, y: u32, z: f32| {
+        let test_u32 = |x: f32, y: u32, z: f32| {
             let dx = torus!(x);
-            let Decimal(result) = dx * y;
-            let Decimal(respect) = torus!(z);
+            let result = dx * y;
+            let respect = torus!(z);
 
             assert!(
-                range_eq(result, respect, acc),
-                "test for {}*{} == {} ?\n result={:?},respect={:?}",
+                torus_range_eq(result, respect, acc),
+                "test_u32 for {}*{} == {} ? result={},respect={}",
                 x,
                 y,
                 z,
-                Decimal(result),
-                Decimal(respect)
+                result,
+                respect
             );
         };
 
-        test(0.5, 1, 0.5);
-        test(0.25, 2, 0.5);
-        test(0.5, 2, 0.0);
-        test(0.75, 4, 0.0);
-        test(0.4, 3, 0.2);
-        test(0.67, 2, 0.34);
-        test(0.524, 5, 0.62);
+        test_u32(0.5, 1, 0.5);
+        test_u32(0.25, 2, 0.5);
+        test_u32(0.5, 2, 0.0);
+        test_u32(0.75, 4, 0.0);
+        test_u32(0.4, 3, 0.2);
+        test_u32(0.67, 2, 0.34);
+        test_u32(0.524, 5, 0.62);
+
+        let test_i32 = |x: f32, y: i32, z: f32| {
+            let dx = torus!(x);
+            let result = dx * y;
+            let respect = torus!(z);
+
+            assert!(
+                torus_range_eq(result, respect, acc),
+                "test_i32 for {}*{} == {} ? result={},respect={}",
+                x,
+                y,
+                z,
+                result,
+                respect
+            );
+        };
+        test_i32(0.5, 2, 0.0);
+        test_i32(0.25, -2, 0.5);
+        test_i32(0.125, -3, 0.625);
+
+        let test_binary = |x: f32, y: Binary, z: f32| {
+            let dx = torus!(x);
+            let result = dx * y;
+            let respect = torus!(z);
+
+            assert!(
+                torus_range_eq(result, respect, acc),
+                "test_binary for {}*{} == {} ? result={},respect={}",
+                x,
+                y,
+                z,
+                result,
+                respect
+            );
+        };
+        test_binary(0.5, Binary::One, 0.5);
+        test_binary(0.25, Binary::Zero, 0.0);
     }
     #[test]
     fn decimal_neg() {
         let test = |x: f32| {
-            let acc: u32 = 100;
+            let acc: f32 = 1e-6;
 
             let dec = torus!(x);
-            let Decimal(expect) = torus!(-x);
-            let Decimal(result) = -dec;
+            let expect = torus!(-x);
+            let result = -dec;
 
             assert!(
-                range_eq(result, expect, acc),
+                torus_range_eq(result, expect, acc),
                 "result={:?},expect={:?}",
-                Decimal(result),
-                Decimal(expect)
+                result,
+                expect,
             );
         };
 
@@ -664,5 +718,10 @@ mod tests {
             expect - result
         };
         acc > diff
+    }
+    fn torus_range_eq(result: Torus, expect: Torus, acc: f32) -> bool {
+        let result = result.to_f32().unwrap();
+        let expect = expect.to_f32().unwrap();
+        (result - expect).abs().min((result + expect - 1.0).abs()) < acc
     }
 }
