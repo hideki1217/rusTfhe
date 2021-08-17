@@ -5,10 +5,10 @@ extern crate test;
 
 extern crate math_utils;
 
-pub mod tlwe;
-pub mod trlwe;
-pub mod trgsw;
 pub mod digest;
+pub mod tlwe;
+pub mod trgsw;
+pub mod trlwe;
 
 pub fn add_two(a: i32) -> i32 {
     a + 2

@@ -2,23 +2,23 @@ use array_macro::array;
 use num::ToPrimitive;
 use std::ops::Neg;
 
-use crate::digest::CryptoCore;
-
-use super::digest::{Crypto, Encrypted};
+use super::digest::{Crypto, Encryptable, Encrypted};
 use math_utils::{Binary, Cross, ModDistribution, Polynomial, Random, Torus};
 
 use math_utils::{pol, torus};
-pub struct TRLWE<const N: usize>();
-impl<const N: usize> CryptoCore for TRLWE<N> {
-    type Representation = Encrypted<Polynomial<Torus, N>, Polynomial<Torus, N>>;
+pub struct TRLWE<const N: usize>;
+macro_rules! trlwe_encryptable {
+    ($t:ty) => {
+        impl<const N: usize> Encryptable<TRLWE<N>> for $t {}
+    };
 }
-impl<const N: usize> TRLWE<N> {
-    #[allow(dead_code)]
+trlwe_encryptable!(Polynomial<Torus, N>);
+trlwe_encryptable!(Polynomial<Binary, N>);
+
+pub struct TRLWEHelper;
+impl TRLWEHelper {
     pub const N: usize = 1024;
-    const ALPHA: f32 = 0.000000119; // 2^{-23}
-    pub fn new() -> Self {
-        TRLWE()
-    }
+    const ALPHA: f32 = 1.0 / (2_u32.pow(23) as f32); // 2^{-23}
     pub fn binary_pol2torus_pol<const M: usize>(
         pol: Polynomial<Binary, M>,
     ) -> Polynomial<Torus, M> {
@@ -44,6 +44,8 @@ impl<const N: usize> TRLWE<N> {
         pol!(l)
     }
 }
+impl<const N: usize> TRLWE<N> {}
+
 impl<CipherT: Copy, PublicKeyT: Copy + Neg<Output = PublicKeyT>, const N: usize>
     Encrypted<Polynomial<CipherT, N>, Polynomial<PublicKeyT, N>>
 {
@@ -67,14 +69,11 @@ impl<CipherT: Copy, PublicKeyT: Copy + Neg<Output = PublicKeyT>, const N: usize>
 }
 impl<const N: usize> Crypto<Polynomial<Torus, N>> for TRLWE<N> {
     type SecretKey = Polynomial<Binary, N>;
+    type Representation = Encrypted<Polynomial<Torus, N>, Polynomial<Torus, N>>;
 
-    fn encrypto(
-        &self,
-        key: &Self::SecretKey,
-        rep: Polynomial<Torus, N>,
-    ) -> <Self as CryptoCore>::Representation {
+    fn encrypto(&self, key: &Self::SecretKey, rep: Polynomial<Torus, N>) -> Self::Representation {
         let mut unif = ModDistribution::uniform();
-        let mut norm = ModDistribution::gaussian(TRLWE::<0>::ALPHA);
+        let mut norm = ModDistribution::gaussian(TRLWEHelper::ALPHA);
 
         let a = pol!(unif.gen_n::<N>());
         let e = pol!(norm.gen_n::<N>());
@@ -84,11 +83,7 @@ impl<const N: usize> Crypto<Polynomial<Torus, N>> for TRLWE<N> {
         Encrypted(b, a)
     }
 
-    fn decrypto(
-        &self,
-        s_key: &Self::SecretKey,
-        rep: <Self as CryptoCore>::Representation,
-    ) -> Polynomial<Torus, N> {
+    fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Polynomial<Torus, N> {
         let (cipher, p_key) = rep.get_and_drop();
         let m_with_e = cipher - p_key.cross(&s_key);
         m_with_e
@@ -96,47 +91,48 @@ impl<const N: usize> Crypto<Polynomial<Torus, N>> for TRLWE<N> {
 }
 impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRLWE<N> {
     type SecretKey = Polynomial<Binary, N>;
+    type Representation = Encrypted<Polynomial<Torus, N>, Polynomial<Torus, N>>;
 
     fn encrypto(
         &self,
         s_key: &Self::SecretKey,
         item: Polynomial<Binary, N>,
-    ) -> <Self as CryptoCore>::Representation {
-        self.encrypto(s_key, TRLWE::<0>::binary_pol2torus_pol(item))
+    ) -> Self::Representation {
+        self.encrypto(s_key, TRLWEHelper::binary_pol2torus_pol(item))
     }
 
     fn decrypto(
         &self,
         s_key: &Self::SecretKey,
-        rep: <Self as CryptoCore>::Representation,
+        rep: Self::Representation,
     ) -> Polynomial<Binary, N> {
-        TRLWE::<0>::torus_pol2binary_pol(self.decrypto(s_key, rep))
+        TRLWEHelper::torus_pol2binary_pol(self.decrypto(s_key, rep))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::*;
+    use crate::digest::Cryptor;
+    use crate::tlwe::TLWE;
+
     use super::*;
     use math_utils::*;
 
     #[test]
     fn trlwe_sample_extract_index() {
-        const N: usize = TRLWE::<0>::N;
+        const N: usize = TRLWEHelper::N;
 
         let mut b_unif = BinaryDistribution::uniform();
-        let trlwe = TRLWE::new();
-        let tlwe: tlwe::TLWE<N> = tlwe::TLWE::new();
 
         let mut test = |item: Polynomial<Binary, N>| {
             let s_key = pol!(b_unif.gen_n::<N>());
-            let rep = trlwe.encrypto(&s_key, item.clone());
+            let rep = Cryptor::encrypto(TRLWE, &s_key, item.clone());
 
-            let res_trlwe: Polynomial<Binary, N> = trlwe.decrypto(&s_key, rep.clone());
+            let res_trlwe: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, rep.clone());
             assert_eq!(res_trlwe, item, "Trlwe is Wrong,");
             for i in 0..N {
                 let encrypted = rep.sample_extract_index(i);
-                let res_tlwe: Binary = tlwe.decrypto(s_key.coefficient(), encrypted);
+                let res_tlwe: Binary = Cryptor::decrypto(TLWE::<N>, s_key.coefficient(), encrypted);
 
                 assert_eq!(
                     res_tlwe,
@@ -153,14 +149,13 @@ mod tests {
 
     #[test]
     fn trlwe_test() {
-        const N: usize = TRLWE::<0>::N;
+        const N: usize = TRLWEHelper::N;
         let mut b_unif = BinaryDistribution::uniform();
-        let trlwe = TRLWE::new();
 
         let mut test = |item: Polynomial<Binary, N>| {
             let s_key = pol!(b_unif.gen_n::<N>());
-            let rep = trlwe.encrypto(&s_key, item.clone());
-            let res: Polynomial<Binary, N> = trlwe.decrypto(&s_key, rep);
+            let rep = Cryptor::encrypto(TRLWE, &s_key, item.clone());
+            let res: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, rep);
 
             assert!(res == item, "trlwe failed");
         };

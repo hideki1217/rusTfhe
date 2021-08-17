@@ -1,5 +1,7 @@
 use array_macro::array;
-use num::{traits::WrappingAdd, Float, Num, One, ToPrimitive, Unsigned, Zero};
+use num::{
+    cast::AsPrimitive, traits::WrappingAdd, Bounded, Float, Num, ToPrimitive, Unsigned, Zero,
+};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::{
@@ -27,12 +29,24 @@ pub trait Cross<T> {
     fn cross(&self, rhs: &T) -> Self::Output;
 }
 /**
-P(X) = SUM_{i=0}^{N-1} coefficient[i]X^i
+P(X) = SUM_{i=0}^{N-1} 0[i]X^i
 を表す。
  */
 #[derive(Debug, Clone, PartialEq, Copy)]
-pub struct Polynomial<T, const N: usize> {
-    coefficient: [T; N],
+pub struct Polynomial<T, const N: usize>([T; N]);
+impl<T, const N: usize> Polynomial<T, N> {
+    pub fn new(coeffis: [T; N]) -> Self {
+        Polynomial(coeffis)
+    }
+    pub fn coefficient(&self) -> &[T; N] {
+        &self.0
+    }
+}
+impl<T: Copy, const N: usize> Polynomial<T, N> {
+    #[inline]
+    pub fn coef_(&self, i: usize) -> T {
+        self.0[i]
+    }
 }
 impl<S, T, const N: usize> Ring<S> for Polynomial<T, N>
 where
@@ -43,20 +57,41 @@ where
 }
 impl<S: Copy, T: Mul<S, Output = T> + Copy, const N: usize> Mul<S> for Polynomial<T, N> {
     type Output = Self;
-
     fn mul(self, rhs: S) -> Self::Output {
-        let res: [T; N] = array![i => self.coefficient[i]*rhs;N];
-        Polynomial { coefficient: res }
+        pol!(array![i => self.0[i]*rhs;N])
     }
 }
-impl<T: Add<Output = T> + Copy, const N: usize> Add for Polynomial<T, N> {
+impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> Add<Polynomial<S, N>>
+    for Polynomial<T, N>
+{
     type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        let res: [T; N] = array![i=> self.coefficient[i]+rhs.coefficient[i];N];
-        Polynomial { coefficient: res }
+    fn add(self, rhs: Polynomial<S, N>) -> Self::Output {
+        pol!(array![i=> self.0[i]+rhs.0[i];N])
     }
 }
+impl<T: Neg<Output = T> + Copy, const N: usize> Neg for Polynomial<T, N> {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        pol!(array![i=>-self.0[i];N])
+    }
+}
+impl<S: Copy, T: Sub<S, Output = T> + Copy, const N: usize> Sub<Polynomial<S, N>>
+    for Polynomial<T, N>
+{
+    type Output = Self;
+    fn sub(self, rhs: Polynomial<S, N>) -> Self::Output {
+        pol!(array![i=>self.0[i]-rhs.0[i];N])
+    }
+}
+impl<T: Zero + Copy, const N: usize> Zero for Polynomial<T, N> {
+    fn zero() -> Self {
+        pol!([T::zero(); N])
+    }
+    fn is_zero(&self) -> bool {
+        self.0.iter().all(|t| t.is_zero())
+    }
+}
+/// X^N+1を法とした多項式乗算
 impl<
         S: Copy,
         T: Mul<S, Output = T> + Add<Output = T> + Sub<Output = T> + Copy + Zero,
@@ -64,7 +99,6 @@ impl<
     > Cross<Polynomial<S, N>> for Polynomial<T, N>
 {
     type Output = Self;
-
     fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
         // TODO: FFTにするとO(nlog(n))、今はn^2
         let poly_cross = |l: &[T; N], r: &[S; N]| {
@@ -81,54 +115,14 @@ impl<
             v
         };
         // X^N+1で割ったあまりを返す
-        let modulo = |pol: Vec<T>| {
+        let modulo = |pol: Vec<T> /*SIZE=2*N-1*/| {
             let res: [T; N] = array![i=>if i<N-1 { pol[i]-pol[N+i] } else {pol[i]};N];
             res
         };
 
         Polynomial {
-            coefficient: modulo(poly_cross(&self.coefficient, &rhs.coefficient)),
+            0: modulo(poly_cross(&self.0, &rhs.0)),
         }
-    }
-}
-impl<T: Neg<Output = T> + Copy, const N: usize> Neg for Polynomial<T, N> {
-    type Output = Self;
-
-    fn neg(self) -> Self::Output {
-        let l: [T; N] = array![i=>-self.coefficient[i];N];
-        pol!(l)
-    }
-}
-impl<T: Sub<Output = T> + Copy, const N: usize> Sub for Polynomial<T, N> {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        let l: [T; N] = array![i=>self.coefficient[i]-rhs.coefficient[i];N];
-        pol!(l)
-    }
-}
-impl<T: Zero + Copy, const N: usize> Zero for Polynomial<T, N> {
-    fn zero() -> Self {
-        pol!([T::zero(); N])
-    }
-    fn is_zero(&self) -> bool {
-        self.coefficient().iter().all(|s| s.is_zero())
-    }
-}
-impl<T, const N: usize> Polynomial<T, N> {
-    pub fn new(coeffis: [T; N]) -> Self {
-        Polynomial {
-            coefficient: coeffis,
-        }
-    }
-    pub fn coefficient(&self) -> &[T; N] {
-        &self.coefficient
-    }
-}
-impl<T: Copy, const N: usize> Polynomial<T, N> {
-    #[inline]
-    pub fn coef_(&self, i: usize) -> T {
-        self.coefficient[i]
     }
 }
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
@@ -136,7 +130,6 @@ impl<const N: usize> Polynomial<Decimal<u32>, N> {
         let res: [[i32; L]; N] = array![ i => {
             self.coef_(i).decomposition(bits)
         }; N];
-
         array![ i => {
             pol!(array![ j => res[j][i]; N])
         }; L]
@@ -148,14 +141,16 @@ pub enum Binary {
     One = 1,
     Zero = 0,
 }
-impl Binary {
-    pub fn from<T: Num>(t: T) -> Binary {
+impl<T: Num> From<T> for Binary {
+    fn from(t: T) -> Self {
         if t == T::zero() {
             Binary::Zero
         } else {
             Binary::One
         }
     }
+}
+impl Binary {
     pub fn to<T: Num>(&self) -> T {
         match self {
             Binary::One => T::one(),
@@ -163,21 +158,17 @@ impl Binary {
         }
     }
 }
-impl ToPrimitive for Binary {
-    fn to_i64(&self) -> Option<i64> {
-        Some(self.to_u64()? as i64)
-    }
-
-    fn to_u64(&self) -> Option<u64> {
-        Some(match &self {
-            Binary::One => u64::one(),
-            Binary::Zero => u64::zero(),
-        })
+impl<T: 'static + Num + Copy> AsPrimitive<T> for Binary {
+    fn as_(self) -> T {
+        match &self {
+            Binary::One => T::one(),
+            Binary::Zero => T::zero(),
+        }
     }
 }
 impl Display for Binary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_u64().unwrap().fmt(f)
+        (*self as u32).fmt(f)
     }
 }
 
@@ -262,7 +253,7 @@ impl Mul<u32> for Decimal<u32> {
 impl Mul<i32> for Decimal<u32> {
     type Output = Self;
     fn mul(self, rhs: i32) -> Self::Output {
-        if rhs < 0 {
+        if rhs.is_negative() {
             -(self * rhs as u32)
         } else {
             self * rhs as u32
@@ -272,14 +263,23 @@ impl Mul<i32> for Decimal<u32> {
 impl Mul<Binary> for Decimal<u32> {
     type Output = Self;
     fn mul(self, rhs: Binary) -> Self::Output {
-        self * rhs.to_u32().unwrap()
+        self * rhs as u32
     }
 }
-impl Neg for Decimal<u32> {
+impl<T: Unsigned + Sub<Output = T> + Bounded> Neg for Decimal<T> {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Decimal(T::max_value() - self.0)
+    }
+}
+impl<T: Unsigned> Sub for Decimal<T>
+where
+    Decimal<T>: Neg<Output = Self> + Add<Output = Self>,
+{
     type Output = Self;
 
-    fn neg(self) -> Self::Output {
-        Decimal(u32::MAX - self.0)
+    fn sub(self, rhs: Self) -> Self::Output {
+        self + (-rhs)
     }
 }
 impl ToPrimitive for Decimal<u32> {
@@ -346,7 +346,6 @@ impl ToPrimitive for Decimal<u32> {
             .fold(f32::neg_zero(), |s, x| s + x);
         Some(f)
     }
-
     fn to_f64(&self) -> Option<f64> {
         match self.to_f32() {
             Some(f) => Some(f as f64),
@@ -361,13 +360,6 @@ impl Zero for Decimal<u32> {
 
     fn is_zero(&self) -> bool {
         u32::is_zero(&self.0)
-    }
-}
-impl Sub for Decimal<u32> {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        self + (-rhs)
     }
 }
 impl From<f32> for Decimal<u32> {
@@ -457,29 +449,29 @@ mod tests {
         let l_integer = pol!([2, 3, 4, 5]);
         let r_integer = pol!([4, 5, 6, 7]);
 
-        assert!((l_integer + r_integer).coefficient == [6, 8, 10, 12]);
+        assert!((l_integer + r_integer).0 == [6, 8, 10, 12]);
 
         let l_dec = pol!([torus!(0.5), torus!(0.75)]);
         let r_dec = pol!([torus!(0.75), torus!(0.5)]);
 
-        assert!((l_dec + r_dec).coefficient == [torus!(0.25), torus!(0.25)]);
+        assert!((l_dec + r_dec).0 == [torus!(0.25), torus!(0.25)]);
     }
     #[test]
     fn polynomial_schalar() {
         let integer = pol!([2, 3, 4, 5]);
 
-        assert!((integer * 3).coefficient == [6, 9, 12, 15]);
+        assert!((integer * 3).0 == [6, 9, 12, 15]);
 
         let dec = pol!([torus!(0.5), torus!(0.75)]);
 
-        assert!((dec * 3).coefficient == [torus!(0.5), torus!(0.25)]);
+        assert!((dec * 3).0 == [torus!(0.5), torus!(0.25)]);
     }
     #[test]
     fn polynomial_cross() {
         let l_f = pol!([2, 3, 4]);
         let r_i = pol!([4, 5, 6]);
 
-        assert_eq!((l_f.cross(&r_i)).coefficient, [-30, -2, 43]);
+        assert_eq!((l_f.cross(&r_i)).0, [-30, -2, 43]);
 
         let l_d = pol!([torus!(0.5), torus!(0.75)]);
         let r_i = pol!([2, 3]);
@@ -691,6 +683,29 @@ mod tests {
         test(-0.25);
         test(0.125);
         test(0.4);
+    }
+    #[test]
+    fn decimal_sub() {
+        let test = |x: f32,y: f32,respect: f32| {
+            let acc: f32 = 1e-6;
+
+            let x_ = torus!(x);
+            let y_ = torus!(y);
+            let expect = torus!(respect);
+            let result = x_-y_;
+
+            assert!(
+                torus_range_eq(result, expect, acc),
+                "result={:?},expect={:?}",
+                result,
+                expect,
+            );
+        };
+
+        test(0.5,0.25,0.25);
+        test(-0.25,0.25,0.5);
+        test(0.125,0.625,0.5);
+        test(0.4,0.2,0.2);
     }
     #[test]
     fn decimal_decomposition() {
