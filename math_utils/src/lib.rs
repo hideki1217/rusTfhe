@@ -33,7 +33,7 @@ P(X) = SUM_{i=0}^{N-1} 0[i]X^i
 を表す。
  */
 #[derive(Debug, Clone, PartialEq, Copy)]
-pub struct Polynomial<T, const N: usize>([T; N]);
+pub struct Polynomial<T:Sized, const N: usize>([T; N]);
 impl<T, const N: usize> Polynomial<T, N> {
     pub fn new(coeffis: [T; N]) -> Self {
         Polynomial(coeffis)
