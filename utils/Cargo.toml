@@ -1,5 +1,5 @@
 [package]
-name = "math_utils"
+name = "utils"
 version = "0.1.0"
 authors = ["hideki1217 <okumurahidekikangeki@gmail.com>"]
 edition = "2018"

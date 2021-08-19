@@ -1,5 +1,5 @@
 [workspace]
 members=[
     "crypto",
-    "math_utils",
+    "utils",
 ]

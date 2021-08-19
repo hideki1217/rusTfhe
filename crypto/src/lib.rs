@@ -2,8 +2,9 @@
 #![feature(const_evaluatable_checked)]
 #![feature(test)]
 extern crate test;
+extern crate debug_print;
 
-extern crate math_utils;
+extern crate utils;
 
 pub mod digest;
 pub mod tlwe;
@@ -19,8 +20,8 @@ mod tests {
     use test::Bencher;
 
     #[test]
-    fn it_works() {
-        assert_eq!(4, add_two(2));
+    fn experiment() {
+        println!("{}",trlwe::TRLWEHelper::ALPHA);
     }
 
     #[bench]

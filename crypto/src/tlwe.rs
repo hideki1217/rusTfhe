@@ -1,7 +1,8 @@
 use num::{ToPrimitive, Zero};
 
 use super::digest::{Crypto, Encryptable, Encrypted};
-use math_utils::{torus, Binary, ModDistribution, Random, Torus};
+use utils::math::{Binary, ModDistribution, Random, Torus};
+use utils::{torus};
 
 pub struct TLWE<const N: usize>;
 macro_rules! tlwe_encryptable {
@@ -15,7 +16,7 @@ tlwe_encryptable!(Torus);
 pub struct TLWEHelper;
 impl TLWEHelper {
     const N: usize = 635;
-    const ALPHA: f32 = 1.0 / (2_u32.pow(15) as f32); // 2-{-15}
+    const ALPHA: f32 = 1.0 / (2_u32.pow(15) as f32); // 2^{-15}
     pub fn binary2torus(bin: Binary) -> Torus {
         torus!(match bin {
             Binary::One => 1.0 / 8.0,
@@ -83,7 +84,7 @@ mod tests {
     use crate::digest::Cryptor;
 
     use super::*;
-    use math_utils::*;
+    use utils::math::*;
 
     #[test]
     fn tlwe_test() {

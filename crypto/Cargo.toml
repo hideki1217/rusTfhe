@@ -8,9 +8,10 @@ edition = "2018"
 
 [dependencies]
 
-math_utils={path="../math_utils"}
+utils={path="../utils"}
 num="0.4"
 array-macro="2.1"
+debug_print="1.0"
 
 
 

@@ -3,9 +3,9 @@ use num::ToPrimitive;
 use std::ops::Neg;
 
 use super::digest::{Crypto, Encryptable, Encrypted};
-use math_utils::{Binary, Cross, ModDistribution, Polynomial, Random, Torus};
+use utils::math::{Binary, Cross, ModDistribution, Polynomial, Random, Torus};
+use utils::{pol, torus};
 
-use math_utils::{pol, torus};
 pub struct TRLWE<const N: usize>;
 macro_rules! trlwe_encryptable {
     ($t:ty) => {
@@ -18,7 +18,7 @@ trlwe_encryptable!(Polynomial<Binary, N>);
 pub struct TRLWEHelper;
 impl TRLWEHelper {
     pub const N: usize = 1024;
-    const ALPHA: f32 = 1.0 / (2_u32.pow(23) as f32); // 2^{-23}
+    pub const ALPHA: f32 = 1.0 / (2_u32.pow(25) as f32); // 2^{-25}
     pub fn binary_pol2torus_pol<const M: usize>(
         pol: Polynomial<Binary, M>,
     ) -> Polynomial<Torus, M> {
@@ -116,7 +116,7 @@ mod tests {
     use crate::tlwe::TLWE;
 
     use super::*;
-    use math_utils::*;
+    use utils::math::*;
 
     #[test]
     fn trlwe_sample_extract_index() {
@@ -161,7 +161,7 @@ mod tests {
         };
 
         let mut b_unif = BinaryDistribution::uniform();
-        for _ in 0..10 {
+        for _ in 0..20 {
             test(pol!(b_unif.gen_n::<N>()))
         }
     }

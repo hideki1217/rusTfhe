@@ -4,10 +4,7 @@ use num::{
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use std::{
-    fmt::Display,
-    ops::{Add, Mul, Neg, Sub},
-};
+use std::{fmt::Display, iter::Map, mem::MaybeUninit, ops::{Add, Mul, Neg, Sub}};
 
 //Macro
 #[macro_export]
@@ -33,7 +30,7 @@ P(X) = SUM_{i=0}^{N-1} 0[i]X^i
 を表す。
  */
 #[derive(Debug, Clone, PartialEq, Copy)]
-pub struct Polynomial<T:Sized, const N: usize>([T; N]);
+pub struct Polynomial<T, const N: usize>([T; N]);
 impl<T, const N: usize> Polynomial<T, N> {
     pub fn new(coeffis: [T; N]) -> Self {
         Polynomial(coeffis)
@@ -41,6 +38,11 @@ impl<T, const N: usize> Polynomial<T, N> {
     pub fn coefficient(&self) -> &[T; N] {
         &self.0
     }
+    pub fn map<O,F:Fn(&T)->O>(&self,f:F) -> Polynomial<O,N> {
+        let mut arr:[MaybeUninit<O>;N] = unsafe{MaybeUninit::uninit().assume_init()};
+        self.0.iter().zip(arr.iter_mut()).for_each(|(t,x)|*x = MaybeUninit::new(f(t)));
+        pol!(crate::mem::transmute::<_,[O;N]>(arr))
+    } 
 }
 impl<T: Copy, const N: usize> Polynomial<T, N> {
     #[inline]
@@ -166,6 +168,7 @@ impl<T: 'static + Num + Copy> AsPrimitive<T> for Binary {
         }
     }
 }
+
 impl Display for Binary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         (*self as u32).fmt(f)
@@ -431,6 +434,12 @@ impl Decimal<u32> {
             }
         }
         i_res
+    }
+
+    pub fn is_in(&self,p:Self,acc:f32) -> bool{
+        let x = self.to_f32().unwrap();
+        let p = p.to_f32().unwrap();
+        (x-p).abs() < acc
     }
 }
 
