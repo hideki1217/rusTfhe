@@ -13,6 +13,27 @@ macro_rules! tlwe_encryptable {
 tlwe_encryptable!(Binary);
 tlwe_encryptable!(Torus);
 
+pub struct TLWERep<const N:usize>{
+    cipher:Torus,
+    p_key:[Torus; N],
+}
+impl<const N:usize> Encrypted<Torus,[Torus;N]> for TLWERep<N> {
+    fn cipher(&self) -> &Torus {
+        &self.cipher
+    }
+    fn p_key(&self) -> &[Torus;N] {
+        &self.p_key
+    }
+    fn get_and_drop(self) -> (Torus, [Torus;N]) {
+        (self.cipher,self.p_key)
+    }
+}
+impl<const N:usize> TLWERep<N> {
+    pub fn new(cipher:Torus,p_key:[Torus;N]) -> Self{
+        TLWERep{cipher,p_key}
+    }
+}
+
 pub struct TLWEHelper;
 impl TLWEHelper {
     const N: usize = 635;
@@ -35,7 +56,7 @@ impl TLWEHelper {
 impl<const N: usize> TLWE<N> {}
 impl<const N: usize> Crypto<Binary> for TLWE<N> {
     type SecretKey = [Binary; N];
-    type Representation = Encrypted<Torus, [Torus; N]>;
+    type Representation = TLWERep<N>;
 
     fn encrypto(&self, key: &Self::SecretKey, item: Binary) -> Self::Representation {
         self.encrypto(key, TLWEHelper::binary2torus(item))
@@ -47,7 +68,7 @@ impl<const N: usize> Crypto<Binary> for TLWE<N> {
 }
 impl<const N: usize> Crypto<Torus> for TLWE<N> {
     type SecretKey = [Binary; N];
-    type Representation = Encrypted<Torus, [Torus; N]>;
+    type Representation = TLWERep<N>;
 
     fn encrypto(&self, key: &Self::SecretKey, item: Torus) -> Self::Representation {
         let mut unif = ModDistribution::uniform();
@@ -63,7 +84,7 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
             .fold(Torus::zero(), |s, x| s + x)
             + e
             + m;
-        Encrypted(b, a)
+        TLWERep::new(b, a)
     }
 
     fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Torus {
@@ -78,6 +99,7 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
         m_with_e
     }
 }
+
 
 #[cfg(test)]
 mod tests {
