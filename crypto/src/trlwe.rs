@@ -38,6 +38,9 @@ impl<const N: usize> TRLWERep<N> {
     pub fn new(cipher: Polynomial<Torus, N>, p_key: Polynomial<Torus, N>) -> Self {
         TRLWERep { cipher, p_key }
     }
+    pub fn map<F:Fn(&Polynomial<Torus, N>) -> Polynomial<Torus, N>>(&self,f:F) -> Self{
+        TRLWERep::new(f(self.cipher()),f(self.p_key()))
+    }
 }
 impl<const N: usize> Add for TRLWERep<N> {
     type Output = Self;

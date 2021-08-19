@@ -1,10 +1,9 @@
 use array_macro::array;
-use num::{
-    cast::AsPrimitive, traits::WrappingAdd, Bounded, Float, Num, ToPrimitive, Unsigned, Zero,
-};
+use num::{Bounded, Float, Integer, Num, ToPrimitive, Unsigned, Zero, cast::AsPrimitive, traits::WrappingAdd};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::{
+    convert::TryInto,
     fmt::Display,
     iter::Map,
     mem::MaybeUninit,
@@ -34,6 +33,7 @@ pub trait Cross<T> {
 /**
 P(X) = SUM_{i=0}^{N-1} 0[i]X^i
 を表す。
+X^Nを法とした剰余環上の値
  */
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Polynomial<T, const N: usize>([T; N]);
@@ -57,6 +57,18 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
     #[inline]
     pub fn coef_(&self, i: usize) -> T {
         self.0[i]
+    }
+}
+impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
+    pub fn rotate(&self, n: i32) -> Self {
+        let n = n.mod_floor(&(2*N as i32)) as usize;
+        if n <= N {
+            let n:usize = n as usize;
+            pol!(array![ i => if i < n { -self.coef_(N+i-n) } else { self.coef_(i-n) } ;N])
+        } else {
+            let n:usize = (2*N-n) as usize;
+            pol!(array![ i=> if i+n >= N { -self.coef_(i+n-N) } else { self.coef_(n+i) } ;N])
+        }
     }
 }
 impl<T: Add<Output = T> + Copy, const N: usize> Polynomial<T, N> {
@@ -257,6 +269,11 @@ impl BinaryDistribution<Uniform<i32>, ThreadRng> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Decimal<U: Unsigned>(U);
 pub type Torus = Decimal<u32>;
+impl<U: Unsigned + Copy> Decimal<U> {
+    pub fn inner(&self) -> U {
+        self.0
+    }
+}
 impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
     type Output = Decimal<U>;
 
@@ -530,6 +547,16 @@ mod tests {
             [pol!([0, 2]), pol!([1, -32768])],
             "要素数2のPolynomialを展開"
         );
+    }
+    #[test]
+    fn polynomial_rotate() {
+        let pol = pol!([1,2,3,4,5]);
+        
+        assert_eq!(pol.rotate(1),pol!([-5,1,2,3,4]));
+        assert_eq!(pol.rotate(3),pol!([-3,-4,-5,1,2]));
+        assert_eq!(pol.rotate(-1),pol!([2,3,4,5,-1]));
+        assert_eq!(pol.rotate(-3),pol!([4,5,-1,-2,-3]));
+        assert_eq!(pol.rotate(10),pol);
     }
 
     #[test]

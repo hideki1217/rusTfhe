@@ -56,10 +56,10 @@ impl<const N: usize> TRGSWRep<N> {
 
 pub struct TRGSWHelper;
 impl TRGSWHelper {
-    const BGBIT: u32 = 6;
-    const BG: usize = 2_i32.pow(TRGSWHelper::BGBIT) as usize;
-    const BG_INV: f32 = 1.0 / (TRGSWHelper::BG as f32);
-    const L: usize = 3;
+    pub const BGBIT: u32 = 6;
+    pub const BG: usize = 2_i32.pow(TRGSWHelper::BGBIT) as usize;
+    pub const BG_INV: f32 = 1.0 / (TRGSWHelper::BG as f32);
+    pub const L: usize = 3;
 }
 impl<const N: usize> TRGSW<N> {
     fn create_zero_encrypted_pols<const M: usize>(
@@ -69,6 +69,7 @@ impl<const N: usize> TRGSW<N> {
             unsafe { MaybeUninit::uninit().assume_init() };
         let mut p_key: [MaybeUninit<Polynomial<Torus, N>>; M] =
             unsafe { MaybeUninit::uninit().assume_init() };
+        
         for (b_, a_) in cipher.iter_mut().zip(p_key.iter_mut()) {
             let (b, a) =
                 Cryptor::encrypto(TRLWE, s_key, Polynomial::<Torus, N>::zero()).get_and_drop();

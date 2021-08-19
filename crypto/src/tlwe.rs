@@ -36,8 +36,8 @@ impl<const N:usize> TLWERep<N> {
 
 pub struct TLWEHelper;
 impl TLWEHelper {
-    const N: usize = 635;
-    const ALPHA: f32 = 1.0 / (2_u32.pow(15) as f32); // 2^{-15}
+    pub const N: usize = 635;
+    pub const ALPHA: f32 = 1.0 / (2_u32.pow(15) as f32); // 2^{-15}
     pub fn binary2torus(bin: Binary) -> Torus {
         torus!(match bin {
             Binary::One => 1.0 / 8.0,

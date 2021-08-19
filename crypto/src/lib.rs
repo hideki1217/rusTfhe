@@ -10,22 +10,14 @@ pub mod digest;
 pub mod tlwe;
 pub mod trgsw;
 pub mod trlwe;
+pub mod tfhe;
 
-pub fn add_two(a: i32) -> i32 {
-    a + 2
-}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
 
     #[test]
     fn experiment() {
         println!("{}",trlwe::TRLWEHelper::ALPHA);
-    }
-
-    #[bench]
-    fn bench_add_two(b: &mut Bencher) {
-        b.iter(|| add_two(2));
     }
 }
