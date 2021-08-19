@@ -4,7 +4,13 @@ use num::{
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use std::{fmt::Display, iter::Map, mem::MaybeUninit, ops::{Add, Mul, Neg, Sub}};
+use std::{
+    fmt::Display,
+    iter::Map,
+    mem::MaybeUninit,
+    ops::{Add, Mul, Neg, Sub},
+    process::Output,
+};
 
 //Macro
 #[macro_export]
@@ -38,16 +44,27 @@ impl<T, const N: usize> Polynomial<T, N> {
     pub fn coefficient(&self) -> &[T; N] {
         &self.0
     }
-    pub fn map<O,F:Fn(&T)->O>(&self,f:F) -> Polynomial<O,N> {
-        let mut arr:[MaybeUninit<O>;N] = unsafe{MaybeUninit::uninit().assume_init()};
-        self.0.iter().zip(arr.iter_mut()).for_each(|(t,x)|*x = MaybeUninit::new(f(t)));
-        pol!(crate::mem::transmute::<_,[O;N]>(arr))
-    } 
+    pub fn map<O, F: Fn(&T) -> O>(&self, f: F) -> Polynomial<O, N> {
+        let mut arr: [MaybeUninit<O>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+        self.0
+            .iter()
+            .zip(arr.iter_mut())
+            .for_each(|(t, x)| *x = MaybeUninit::new(f(t)));
+        pol!(crate::mem::transmute::<_, [O; N]>(arr))
+    }
 }
 impl<T: Copy, const N: usize> Polynomial<T, N> {
     #[inline]
     pub fn coef_(&self, i: usize) -> T {
         self.0[i]
+    }
+}
+impl<T: Add<Output = T> + Copy, const N: usize> Polynomial<T, N> {
+    pub fn add_constant(&self, rhs: T) -> Polynomial<T, N> {
+        let mut iter = self.0.iter();
+        pol!(
+            array![ i => if i==0 {*(iter.next().unwrap()) + rhs} else { *(iter.next().unwrap()) };N]
+        )
     }
 }
 impl<S, T, const N: usize> Ring<S> for Polynomial<T, N>
@@ -436,10 +453,10 @@ impl Decimal<u32> {
         i_res
     }
 
-    pub fn is_in(&self,p:Self,acc:f32) -> bool{
+    pub fn is_in(&self, p: Self, acc: f32) -> bool {
         let x = self.to_f32().unwrap();
         let p = p.to_f32().unwrap();
-        (x-p).abs() < acc
+        (x - p).abs() < acc
     }
 }
 
@@ -695,13 +712,13 @@ mod tests {
     }
     #[test]
     fn decimal_sub() {
-        let test = |x: f32,y: f32,respect: f32| {
+        let test = |x: f32, y: f32, respect: f32| {
             let acc: f32 = 1e-6;
 
             let x_ = torus!(x);
             let y_ = torus!(y);
             let expect = torus!(respect);
-            let result = x_-y_;
+            let result = x_ - y_;
 
             assert!(
                 torus_range_eq(result, expect, acc),
@@ -711,10 +728,10 @@ mod tests {
             );
         };
 
-        test(0.5,0.25,0.25);
-        test(-0.25,0.25,0.5);
-        test(0.125,0.625,0.5);
-        test(0.4,0.2,0.2);
+        test(0.5, 0.25, 0.25);
+        test(-0.25, 0.25, 0.5);
+        test(0.125, 0.625, 0.5);
+        test(0.4, 0.2, 0.2);
     }
     #[test]
     fn decimal_decomposition() {

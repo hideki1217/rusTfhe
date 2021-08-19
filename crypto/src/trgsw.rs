@@ -1,11 +1,12 @@
-use array_macro::array;
+
 use num::{ToPrimitive, Zero};
 use std::mem::MaybeUninit;
 
 use super::digest::{Crypto, Cryptor, Encryptable, Encrypted};
+use super::tlwe::TLWE;
 use super::trlwe::TRLWE;
 use utils::math::{Binary, Cross, Polynomial, Torus};
-use utils::{pol, torus};
+use utils::torus;
 
 pub struct TRGSW<const N: usize>;
 macro_rules! trgsw_encryptable {
@@ -25,7 +26,27 @@ impl TRGSWHelper {
     const BG_INV: f32 = 1.0 / (TRGSWHelper::BG as f32);
     const L: usize = 3;
 }
-impl<const N: usize> TRGSW<N> {}
+impl<const NN: usize> TRGSW<NN> {
+    fn create_zero_encrypted_pols<const M: usize, const N: usize>(
+        s_key: &<TRGSW<N> as Crypto<Polynomial<i32, N>>>::SecretKey,
+    ) -> ([Polynomial<Torus, N>; M], [Polynomial<Torus, N>; M]) {
+        let mut cipher: [MaybeUninit<Polynomial<Torus, N>>; M] =
+            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut p_key: [MaybeUninit<Polynomial<Torus, N>>; M] =
+            unsafe { MaybeUninit::uninit().assume_init() };
+        for (b_, a_) in cipher.iter_mut().zip(p_key.iter_mut()) {
+            let Encrypted(b, a) = Cryptor::encrypto(TRLWE, s_key, Polynomial::<Torus, N>::zero());
+            *b_ = MaybeUninit::new(b);
+            *a_ = MaybeUninit::new(a);
+        }
+        // std::mem::transmute have problem
+        // issue:https://github.com/rust-lang/rust/issues/61956
+        (
+            utils::mem::transmute::<_, [Polynomial<Torus, N>; M]>(cipher),
+            utils::mem::transmute::<_, [Polynomial<Torus, N>; M]>(p_key),
+        )
+    }
+}
 
 impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
     type SecretKey = Polynomial<Binary, N>;
@@ -36,27 +57,7 @@ impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
 
     fn encrypto(&self, s_key: &Self::SecretKey, item: Polynomial<i32, N>) -> Self::Representation {
         const L: usize = TRGSWHelper::L;
-        fn create_zero_encrypted_pols<const M: usize, const N: usize>(
-            s_key: &<TRGSW<N> as Crypto<Polynomial<i32, N>>>::SecretKey,
-        ) -> ([Polynomial<Torus, N>; M], [Polynomial<Torus, N>; M]) {
-            let mut cipher: [MaybeUninit<Polynomial<Torus, N>>; M] =
-                unsafe { MaybeUninit::uninit().assume_init() };
-            let mut p_key: [MaybeUninit<Polynomial<Torus, N>>; M] =
-                unsafe { MaybeUninit::uninit().assume_init() };
-            for (b_, a_) in cipher.iter_mut().zip(p_key.iter_mut()) {
-                let Encrypted(b, a) =
-                    Cryptor::encrypto(TRLWE, s_key, Polynomial::<Torus, N>::zero());
-                *b_ = MaybeUninit::new(b);
-                *a_ = MaybeUninit::new(a);
-            }
-            // std::mem::transmute have problem
-            // issue:https://github.com/rust-lang/rust/issues/61956
-            (
-                utils::mem::transmute::<_, [Polynomial<Torus, N>; M]>(cipher),
-                utils::mem::transmute::<_, [Polynomial<Torus, N>; M]>(p_key),
-            )
-        }
-        let (mut cipher, mut p_key) = create_zero_encrypted_pols::<{ 2 * L }, N>(s_key);
+        let (mut cipher, mut p_key) = Self::create_zero_encrypted_pols::<{ 2 * L }, N>(s_key);
         {
             let mut bg: f32 = 1.0;
             for i in 0..L {
@@ -70,10 +71,10 @@ impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
     }
 
     fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Polynomial<i32, N> {
-        const I:usize = 0; // BG^(I+1)の精度で復元,エラーもBG^(I+1)倍されるのでトレードオフ
-        const BG:i32 = TRGSWHelper::BG.pow(I as u32 +1) as i32;
-        const FALF_BG:i32 = BG/2;
-        debug_assert!((I as u32)<TRGSWHelper::BGBIT);
+        const I: usize = 0; // BG^(I+1)の精度で復元,エラーもBG^(I+1)倍されるのでトレードオフ
+        const BG: i32 = TRGSWHelper::BG.pow(I as u32 + 1) as i32;
+        const FALF_BG: i32 = BG / 2;
+        debug_assert!((I as u32) < TRGSWHelper::BGBIT);
         let (b, a) = rep.get_and_drop();
         let res: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, s_key, Encrypted(b[I], a[I]));
         res.map(|d| {
@@ -81,8 +82,11 @@ impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
                 .round()
                 .to_i32()
                 .unwrap();
-            if res > FALF_BG { res - BG }
-            else { res } 
+            if res > FALF_BG {
+                res - BG
+            } else {
+                res
+            }
         })
     }
 }
@@ -134,13 +138,39 @@ impl<const N: usize> Crypto<i32> for TRGSW<N> {
     >;
 
     fn encrypto(&self, s_key: &Self::SecretKey, item: i32) -> Self::Representation {
-        let text = pol!(array![i => if i==0 {item} else {i32::zero()};N]);
-        Cryptor::encrypto(TRGSW, s_key, text)
+        const L: usize = TRGSWHelper::L;
+        let (mut cipher, mut p_key) = Self::create_zero_encrypted_pols::<{ 2 * L }, N>(s_key);
+        {
+            let mut bg: f32 = 1.0;
+            for i in 0..L {
+                bg *= TRGSWHelper::BG_INV;
+                let p = torus!(item as f32 * bg); //item.map(|&x| torus!(x as f32 * bg));
+                cipher[i] = cipher[i].add_constant(p);
+                p_key[i + L] = p_key[i + L].add_constant(p);
+            }
+        }
+        Encrypted(cipher, p_key)
     }
 
-    #[allow(unused_variables)]
     fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> i32 {
-        todo!()
+        const I: usize = 0; // BG^(I+1)の精度で復元,エラーもBG^(I+1)倍されるのでトレードオフ
+        const BG: i32 = TRGSWHelper::BG.pow(I as u32 + 1) as i32;
+        const FALF_BG: i32 = BG / 2;
+        debug_assert!((I as u32) < TRGSWHelper::BGBIT);
+        let (b, a) = rep.get_and_drop();
+        let rep = Encrypted(b[I], a[I]).sample_extract_index(0);
+        let res: Torus = Cryptor::decrypto(TLWE, s_key.coefficient(), rep);
+        // 丸める
+        let res = (res.to_f32().unwrap() * (TRGSWHelper::BG as f32))
+            .round()
+            .to_i32()
+            .unwrap();
+
+        if res > FALF_BG {
+            res - BG
+        } else {
+            res
+        }
     }
 }
 
@@ -195,6 +225,8 @@ mod tests {
 
     use super::*;
     use test::Bencher;
+    use utils::{pol,torus};
+    use array_macro::array;
     use utils::math::*;
 
     #[test]
@@ -212,6 +244,11 @@ mod tests {
         let rep = Cryptor::encrypto(TRGSW::<N>, &s_key, pol.clone());
         let res: Polynomial<i32, N> = Cryptor::decrypto(TRGSW, &s_key, rep);
         assert_eq!(pol, res);
+
+        let item:i32 = 3;
+        let rep = Cryptor::encrypto(TRGSW, &s_key, item);
+        let res:i32 = Cryptor::decrypto(TRGSW, &s_key, rep);
+        assert_eq!(item,res);
     }
 
     #[test]
