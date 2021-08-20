@@ -3,6 +3,7 @@
 #![feature(test)]
 extern crate test;
 extern crate debug_print;
+extern crate itertools;
 
 extern crate utils;
 
@@ -11,6 +12,7 @@ pub mod tlwe;
 pub mod trgsw;
 pub mod trlwe;
 pub mod tfhe;
+
 
 #[cfg(test)]
 mod tests {

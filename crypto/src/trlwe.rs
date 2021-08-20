@@ -58,7 +58,7 @@ impl<const N: usize> Sub for TRLWERep<N> {
 pub struct TRLWEHelper;
 impl TRLWEHelper {
     pub const N: usize = 1024;
-    pub const ALPHA: f32 = 1.0 / (2_u32.pow(25) as f32); // 2^{-25}
+    pub const ALPHA: f32 = 1.0 / (2_u32.pow(23) as f32); // 2^{-25}
     pub fn binary_pol2torus_pol<const M: usize>(
         pol: Polynomial<Binary, M>,
     ) -> Polynomial<Torus, M> {

@@ -12,6 +12,8 @@ utils={path="../utils"}
 num="0.4"
 array-macro="2.1"
 debug_print="1.0"
+itertools="0.10"
+
 
 
 

@@ -69,7 +69,7 @@ impl<const N: usize> TRGSW<N> {
             unsafe { MaybeUninit::uninit().assume_init() };
         let mut p_key: [MaybeUninit<Polynomial<Torus, N>>; M] =
             unsafe { MaybeUninit::uninit().assume_init() };
-        
+
         for (b_, a_) in cipher.iter_mut().zip(p_key.iter_mut()) {
             let (b, a) =
                 Cryptor::encrypto(TRLWE, s_key, Polynomial::<Torus, N>::zero()).get_and_drop();
@@ -93,10 +93,10 @@ impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
         const L: usize = TRGSWHelper::L;
         let (mut cipher, mut p_key) = Self::create_zero_encrypted_pols::<{ 2 * L }>(s_key);
         {
-            let mut bg: f32 = 1.0;
+            const BG_INV:f32 = TRGSWHelper::BG_INV;
             for i in 0..L {
-                bg *= TRGSWHelper::BG_INV;
-                let p = item.map(|&x| torus!(x as f32 * bg));
+                let bg_inv_pow_i = BG_INV.powi(1+i as i32);
+                let p = item.map(|&x| torus!(x as f32 * bg_inv_pow_i));
                 cipher[i] = cipher[i] + p;
                 p_key[i + L] = p_key[i + L] + p;
             }
@@ -166,10 +166,9 @@ impl<const N: usize> Crypto<i32> for TRGSW<N> {
         const L: usize = TRGSWHelper::L;
         let (mut cipher, mut p_key) = Self::create_zero_encrypted_pols::<{ 2 * L }>(s_key);
         {
-            let mut bg: f32 = 1.0;
+            const BG_INV:f32 = TRGSWHelper::BG_INV;
             for i in 0..L {
-                bg *= TRGSWHelper::BG_INV;
-                let p = torus!(item as f32 * bg); //item.map(|&x| torus!(x as f32 * bg));
+                let p = torus!(item as f32 * BG_INV.powi(1+i as i32));
                 cipher[i] = cipher[i].add_constant(p);
                 p_key[i + L] = p_key[i + L].add_constant(p);
             }
@@ -199,7 +198,7 @@ impl<const N: usize> Crypto<i32> for TRGSW<N> {
     }
 }
 
-impl<const N: usize> Cross</*<TRLWE as CryptoCore>::Representation*/ TRLWERep<N>> for TRGSWRep<N> {
+impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRep<N> {
     type Output = TRLWERep<N>;
 
     fn cross(&self, rhs: &TRLWERep<N>) -> Self::Output {
@@ -264,38 +263,74 @@ mod tests {
 
     #[test]
     fn trgsw_cross() {
-        const N: usize = 3;
         let acc = 1e-6;
 
-        let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
-
-        let item: i32 = 1;
-        let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
-        let respect: Polynomial<Torus, N> = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
-        let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, respect));
-        let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
-        for i in 0..N {
-            assert!(
-                actual.coef_(i).is_in(respect.coef_(i), acc),
-                "1をTRGSWで暗号化してかけても、複合結果は変わらないはず\nrespect={:?},actual={:?}",
-                respect,
-                actual
-            );
+        {
+            const N:usize = 1;
+            let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
+            /* 
+            let item: i32 = 1;
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
+            let respect: Polynomial<Torus, N> = pol!([torus!(0.5)]);
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, respect));
+            let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
+            for i in 0..N {
+                assert!(
+                    actual.coef_(i).is_in(respect.coef_(i), acc),
+                    "N=1::1をTRGSWで暗号化してかけても、複合結果は変わらないはず\nrespect={:?},actual={:?}",
+                    respect,
+                    actual
+                );
+            }
+            
+            let item: i32 = 3;
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
+            let respect: Polynomial<Torus, N> = pol!([torus!(0.5)]);
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, respect));
+            let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
+            for i in 0..N {
+                assert!(
+                    actual.coef_(i).is_in(respect.coef_(i), acc),
+                    "N=1::3をTRGSWで暗号化してかける\nrespect={:?},actual={:?}",
+                    respect,
+                    actual
+                );
+            }*/
         }
 
-        let pol_i32: Polynomial<i32, N> = pol!([1, -1, 1]);
-        let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, pol_i32.clone());
-        let pol_torus: Polynomial<Torus, N> = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
-        let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, pol_torus));
-        let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
-        let respect = pol_torus.cross(&pol_i32);
-        for i in 0..N {
-            assert!(
-                actual.coef_(i).is_in(respect.coef_(i), acc),
-                "多項式をTRGSWで暗号化してかけたものを復号化\nrespect={:?},actual={:?}",
-                respect,
-                actual
-            );
+        {
+            const N: usize = 3;
+
+            let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
+            
+            let item: i32 = 1;
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
+            let respect: Polynomial<Torus, N> = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, respect));
+            let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
+            for i in 0..N {
+                assert!(
+                    actual.coef_(i).is_in(respect.coef_(i), acc),
+                    "1をTRGSWで暗号化してかけても、複合結果は変わらないはず\nrespect={:?},actual={:?}",
+                    respect,
+                    actual
+                );
+            }
+
+            let pol_i32: Polynomial<i32, N> = pol!([1, -1, 1]);
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, pol_i32.clone());
+            let pol_torus: Polynomial<Torus, N> = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, pol_torus));
+            let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
+            let respect = pol_torus.cross(&pol_i32);
+            for i in 0..N {
+                assert!(
+                    actual.coef_(i).is_in(respect.coef_(i), acc),
+                    "多項式をTRGSWで暗号化してかけたものを復号化\nrespect={:?},actual={:?}",
+                    respect,
+                    actual
+                );
+            }
         }
     }
 
@@ -308,7 +343,7 @@ mod tests {
         let item: i32 = 1;
         let pol_0: Polynomial<Binary, N> = pol!([Binary::Zero; N]);
         let pol_1: Polynomial<Binary, N> = pol!([Binary::One; N]);
-        
+
         let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
         let rep_0_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_0.clone());
         let rep_1_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_1.clone());
@@ -332,7 +367,7 @@ mod tests {
 
         let pol_u32: Polynomial<u32, N> = pol!(array![ i => (i%TRGSWHelper::BG)as u32;N]);
         let pol_torus: Polynomial<Torus, N> = pol!(ModDistribution::uniform().gen_n::<N>());
-        
+
         let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, pol_u32);
         let rep_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_torus);
 
