@@ -1,14 +1,14 @@
 use array_macro::array;
-use num::{Bounded, Float, Integer, Num, ToPrimitive, Unsigned, Zero, cast::AsPrimitive, traits::WrappingAdd};
+use num::{
+    cast::AsPrimitive, traits::WrappingAdd, Bounded, Float, Integer, Num, ToPrimitive, Unsigned,
+    Zero,
+};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::{
-    convert::TryInto,
     fmt::Display,
-    iter::Map,
     mem::MaybeUninit,
     ops::{Add, Mul, Neg, Sub},
-    process::Output,
 };
 
 //Macro
@@ -61,22 +61,21 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
 }
 impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
     pub fn rotate(&self, n: i32) -> Self {
-        let n = n.mod_floor(&(2*N as i32)) as usize;
+        let n = n.mod_floor(&(2 * N as i32)) as usize;
         if n <= N {
-            let n:usize = n as usize;
+            let n: usize = n as usize;
             pol!(array![ i => if i < n { -self.coef_(N+i-n) } else { self.coef_(i-n) } ;N])
         } else {
-            let n:usize = (2*N-n) as usize;
+            let n: usize = (2 * N - n) as usize;
             pol!(array![ i=> if i+n >= N { -self.coef_(i+n-N) } else { self.coef_(n+i) } ;N])
         }
     }
 }
 impl<T: Add<Output = T> + Copy, const N: usize> Polynomial<T, N> {
-    pub fn add_constant(&self, rhs: T) -> Polynomial<T, N> {
-        let mut iter = self.0.iter();
-        pol!(
-            array![ i => if i==0 {*(iter.next().unwrap()) + rhs} else { *(iter.next().unwrap()) };N]
-        )
+    pub fn add_constant(self, rhs: T) -> Polynomial<T, N> {
+        let mut coefs = self.0;
+        coefs[0] = coefs[0] + rhs;
+        pol!(coefs)
     }
 }
 impl<S, T, const N: usize> Ring<S> for Polynomial<T, N>
@@ -269,9 +268,57 @@ impl BinaryDistribution<Uniform<i32>, ThreadRng> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Decimal<U: Unsigned>(U);
 pub type Torus = Decimal<u32>;
+impl<U: Unsigned> Decimal<U> {
+    pub fn from_bits(u: U) -> Self {
+        Decimal(u)
+    }
+}
 impl<U: Unsigned + Copy> Decimal<U> {
     pub fn inner(&self) -> U {
         self.0
+    }
+}
+impl Decimal<u32> {
+    /// 2進表現から2^bits進表現に変換
+    /// N=u32::BITSを2^bitsで表現したときの有効桁数
+    pub fn decomposition<const L: usize>(self, bits: u32) -> [i32; L] {
+        assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
+
+        const TOTAL: u32 = u32::BITS;
+        let bg = 2_u32.pow(bits);
+        let mask = bg - 1;
+
+        let Decimal(u) = self;
+        // 丸める
+        let u = u + if (TOTAL - (L as u32) * bits) != 0 {
+            1 << (TOTAL - (L as u32) * bits - 1)
+        } else {
+            0
+        };
+
+        // res={a_i}, a_i in [0,bg)
+        let u_res = array![i => {
+            (u >> (TOTAL - bits*((i+1) as u32))) & mask
+        };L];
+        // res={a_i}, a_i in [-bg/2,bg/2)
+        let mut i_res = [i32::zero(); L];
+        for i in (0..L).rev() {
+            i_res[i] = if u_res[i] >= bg / 2 {
+                if i > 0 {
+                    i_res[i - 1] -= 1;
+                }
+                (u_res[i] as i32) - (bg as i32)
+            } else {
+                u_res[i] as i32
+            }
+        }
+        i_res
+    }
+
+    pub fn is_in(&self, p: Self, acc: f32) -> bool {
+        let x = self.to_f32().unwrap();
+        let p = p.to_f32().unwrap();
+        (x - p).abs() < acc
     }
 }
 impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
@@ -433,49 +480,6 @@ impl Display for Decimal<u32> {
         self.to_f32().unwrap().fmt(f)
     }
 }
-impl Decimal<u32> {
-    /// 2進表現から2^bits進表現に変換
-    /// N=u32::BITSを2^bitsで表現したときの有効桁数
-    pub fn decomposition<const L: usize>(self, bits: u32) -> [i32; L] {
-        assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
-
-        const TOTAL: u32 = u32::BITS;
-        let bg = 2_u32.pow(bits);
-        let mask = bg - 1;
-        let round = TOTAL - (L as u32) * bits > 0;
-
-        let Decimal(u) = self;
-        // 丸める
-        let u = u + if round {
-            2_u32.pow(TOTAL - (L as u32) * bits - 1)
-        } else {
-            0
-        };
-        // res={a_i}, a_i in [0,bg)
-        let u_res = array![i => {
-            (u >> (TOTAL - bits*((i+1) as u32))) & mask
-        };L];
-        // res={a_i}, a_i in [-bg/2,bg/2)
-        let mut i_res = [i32::zero(); L];
-        for i in (0..L).rev() {
-            i_res[i] = if u_res[i] >= bg / 2 {
-                if i > 0 {
-                    i_res[i - 1] -= 1;
-                }
-                (u_res[i] as i32) - (bg as i32)
-            } else {
-                u_res[i] as i32
-            }
-        }
-        i_res
-    }
-
-    pub fn is_in(&self, p: Self, acc: f32) -> bool {
-        let x = self.to_f32().unwrap();
-        let p = p.to_f32().unwrap();
-        (x - p).abs() < acc
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -523,6 +527,42 @@ mod tests {
         let res = l_d.cross(&r_i);
         assert!(torus_range_eq(res.coef_(0), torus!(0.75), acc));
         assert!(torus_range_eq(res.coef_(1), torus!(0.0), acc));
+
+        let l = pol!([torus!(0.5)]);
+        let r = pol!([1]);
+        let res = l.cross(&r);
+        assert!(
+            torus_range_eq(res.coef_(0), l.coef_(0), acc),
+            "1をかけても変わらん。part1"
+        );
+
+        let l = pol!([torus!(0.25), torus!(0.5)]);
+        let r = pol!([1, 0]);
+        let res = l.cross(&r);
+        assert!(
+            torus_range_eq(res.coef_(0), l.coef_(0), acc),
+            "1をかけても変わらん。part2"
+        );
+        assert!(
+            torus_range_eq(res.coef_(1), l.coef_(1), acc),
+            "1をかけても変わらん。part2"
+        );
+
+        let l = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
+        let r = pol!([1, 0, 0]);
+        let res = l.cross(&r);
+        assert!(
+            torus_range_eq(res.coef_(0), l.coef_(0), acc),
+            "1をかけても変わらん。part3"
+        );
+        assert!(
+            torus_range_eq(res.coef_(1), l.coef_(1), acc),
+            "1をかけても変わらん。part3"
+        );
+        assert!(
+            torus_range_eq(res.coef_(2), l.coef_(2), acc),
+            "1をかけても変わらん。part3"
+        );
     }
     #[test]
     fn polynomial_decomposition() {
@@ -547,16 +587,20 @@ mod tests {
             [pol!([0, 2]), pol!([1, -32768])],
             "要素数2のPolynomialを展開"
         );
+
+        let pol = pol!([Decimal(0b000001_000010_000011_100000_000000_00u32)]);
+        let res = pol.decomposition::<3>(6);
+        assert_eq!(res, [pol!([1]), pol!([2]), pol!([4])], "パート３");
     }
     #[test]
     fn polynomial_rotate() {
-        let pol = pol!([1,2,3,4,5]);
-        
-        assert_eq!(pol.rotate(1),pol!([-5,1,2,3,4]));
-        assert_eq!(pol.rotate(3),pol!([-3,-4,-5,1,2]));
-        assert_eq!(pol.rotate(-1),pol!([2,3,4,5,-1]));
-        assert_eq!(pol.rotate(-3),pol!([4,5,-1,-2,-3]));
-        assert_eq!(pol.rotate(10),pol);
+        let pol = pol!([1, 2, 3, 4, 5]);
+
+        assert_eq!(pol.rotate(1), pol!([-5, 1, 2, 3, 4]));
+        assert_eq!(pol.rotate(3), pol!([-3, -4, -5, 1, 2]));
+        assert_eq!(pol.rotate(-1), pol!([2, 3, 4, 5, -1]));
+        assert_eq!(pol.rotate(-3), pol!([4, 5, -1, -2, -3]));
+        assert_eq!(pol.rotate(10), pol);
     }
 
     #[test]
@@ -677,6 +721,7 @@ mod tests {
         test_u32(0.4, 3, 0.2);
         test_u32(0.67, 2, 0.34);
         test_u32(0.524, 5, 0.62);
+        test_u32(0.24, 0, 0.0);
 
         let test_i32 = |x: f32, y: i32, z: f32| {
             let dx = torus!(x);
@@ -696,6 +741,7 @@ mod tests {
         test_i32(0.5, 2, 0.0);
         test_i32(0.25, -2, 0.5);
         test_i32(0.125, -3, 0.625);
+        test_i32(0.24, 0, 0.0);
 
         let test_binary = |x: f32, y: Binary, z: f32| {
             let dx = torus!(x);
@@ -774,11 +820,39 @@ mod tests {
         );
 
         let res = dec.decomposition::<8>(4);
-        assert_eq!(res, [-8_i32, 0, 0, 0, 0, 0, 0, 0], "test2");
+        assert_eq!(
+            res,
+            [-8_i32, 0, 0, 0, 0, 0, 0, 0],
+            "test2:[-2^bits/2,2^bits/2)で表現"
+        );
         let res = dec.decomposition::<7>(4);
-        assert_eq!(res, [-8_i32, 0, 0, 0, 0, 0, 0], "test2");
+        assert_eq!(
+            res,
+            [-8_i32, 0, 0, 0, 0, 0, 0],
+            "test3:32に足らなくてもいい"
+        );
+
+        let dec = Decimal(0x8000_0001_u32);
+        let res = dec.decomposition::<31>(1);
+        assert_eq!(
+            res,
+            [
+                -1_i32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, -1 /*ここはもとの数では0だけど四捨五入で-1*/
+            ],
+            "test3: 繰り上がりがある。丸めるから"
+        );
+
+        let dec = Decimal(0b000001_000010_000011_000000_000000_00u32);
+        let res = dec.decomposition::<3>(6);
+        assert_eq!(res, [1, 2, 3], "test4: 本番と同じ使い方。繰り上がりなし");
+
+        let dec = Decimal(0b000001_000010_000011_100000_000000_00u32);
+        let res = dec.decomposition::<3>(6);
+        assert_eq!(res, [1, 2, 4], "test4: 本番と同じ使い方。繰り上がりあり");
     }
 
+    #[allow(dead_code)]
     fn range_eq<T: Num + PartialOrd>(result: T, expect: T, acc: T) -> bool {
         let diff: T = if result > expect {
             result - expect
