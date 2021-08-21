@@ -1,7 +1,7 @@
 use std::ops::{Add, Sub};
 
 use array_macro::array;
-use num::ToPrimitive;
+use num::{ToPrimitive,Zero};
 
 use crate::tlwe::TLWERep;
 
@@ -40,6 +40,9 @@ impl<const N: usize> TRLWERep<N> {
     }
     pub fn map<F:Fn(&Polynomial<Torus, N>) -> Polynomial<Torus, N>>(&self,f:F) -> Self{
         TRLWERep::new(f(self.cipher()),f(self.p_key()))
+    }
+    pub fn trivial_one(text: Polynomial<Torus,N>)->Self {
+        TRLWERep::new(text,pol!([Torus::zero();N]))
     }
 }
 impl<const N: usize> Add for TRLWERep<N> {
@@ -202,5 +205,11 @@ mod tests {
         for _ in 0..20 {
             test(pol!(b_unif.gen_n::<N>()))
         }
+
+        let s_key = pol!(b_unif.gen_n::<N>());
+        let pol = pol!([torus!(0.5);N]);
+        let rep = TRLWERep::trivial_one(pol);
+        let res: Polynomial<Torus,N> = Cryptor::decrypto(TRLWE, &s_key, rep);
+        assert_eq!(res,pol,"trivialな暗号文を複号してみた");
     }
 }

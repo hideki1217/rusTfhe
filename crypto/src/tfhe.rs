@@ -18,7 +18,7 @@ impl<const N: usize> TFHE<N> {
         rep_tlwe: TLWERep<N>,
         bk: [TRGSWRep<N>; TLWEHelper::N],
     ) -> TLWERep<N> {
-        let testvec: TRLWERep<N> = TFHE::trivial_trlwe_rep(TFHEHelper::COEF);
+        let testvec: TRLWERep<N> = TRLWERep::trivial_one(pol!([torus!(TFHEHelper::COEF);N]));
         let trlwe: TRLWERep<N> = TFHE::blind_rotate(rep_tlwe, bk, testvec);
         trlwe.sample_extract_index(0)
     }
@@ -42,8 +42,5 @@ impl<const N: usize> TFHE<N> {
         );
 
         trlwe
-    }
-    fn trivial_trlwe_rep(f: f32) -> TRLWERep<N> {
-        TRLWERep::new(pol!([torus!(f); N]), pol!([Torus::zero(); N]))
     }
 }

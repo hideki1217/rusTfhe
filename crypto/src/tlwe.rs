@@ -223,7 +223,10 @@ impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
         }
         KeySwitchingKey(ks)
     }
-    /// get(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE(t\*s_i/(2^{bit*(l+1)}))
+    /// # Sample
+    /// ```
+    /// ks_sample.get(i,l,t)// = KS[i][l][t-1] = TLWE::encrypto(t*s_i/(2^{bit*(l+1)}))
+    /// ```
     pub fn get(&self, i: usize, l: usize, t: usize) -> TLWERep<M> {
         if t <= 0 {
             TLWERep::<M>::zero()
@@ -231,7 +234,10 @@ impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
             self.0[i][l][t as usize - 1]
         }
     }
-    /// get_unchecked(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE(t\*s_i/(2^{bit*(l+1)}))
+    /// # Sample
+    /// ```
+    /// ks_sample.get_uncheckede(i,l,t)// = KS[i][l][t-1] = TLWE::encrypto(t*s_i/(2^{bit*(l+1)}))
+    /// ```
     pub unsafe fn get_unchecked(&self, i: usize, l: usize, t: usize) -> TLWERep<M> {
         if t <= 0 {
             TLWERep::<M>::zero()
