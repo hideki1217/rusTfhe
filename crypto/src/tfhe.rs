@@ -3,7 +3,6 @@ use crate::{digest::Encrypted, tlwe::TLWERep, trgsw::TRGSWRep, trlwe::TRLWERep};
 use utils::math::{Polynomial, Torus};
 use utils::{pol, torus};
 
-use num::Zero;
 
 pub struct TFHE<const N: usize>;
 

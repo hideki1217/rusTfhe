@@ -255,7 +255,7 @@ mod tests {
         let res: Polynomial<i32, N> = Cryptor::decrypto(TRGSW, &s_key, rep);
         assert_eq!(pol, res);
 
-        let item: i32 = 3;
+        let item: i32 = 4;
         let rep = Cryptor::encrypto(TRGSW, &s_key, item);
         let res: i32 = Cryptor::decrypto(TRGSW, &s_key, rep);
         assert_eq!(item, res);

@@ -22,13 +22,12 @@ macro_rules! torus {
     };
 }
 
-pub trait Ring<T>: Cross<T, Output = Self> + Add + Sized {}
 pub trait Cross<T> {
     type Output;
     fn cross(&self, rhs: &T) -> Self::Output;
 }
 /**
-P(X) = SUM_{i=0}^{N-1} 0[i]X^i
+P(X) = SUM_{i=0}^{N-1} 0\[i\]X^i
 を表す。
 X^Nを法とした剰余環上の値
  */
@@ -75,39 +74,36 @@ impl<T: Add<Output = T> + Copy, const N: usize> Polynomial<T, N> {
         pol!(coefs)
     }
 }
-impl<S, T, const N: usize> Ring<S> for Polynomial<T, N>
-where
-    S: Copy,
-    T: Copy + Mul<S, Output = T> + Add<Output = T>,
-    Polynomial<T, N>: Cross<S, Output = Self>,
-{
-}
 impl<S: Copy, T: Mul<S, Output = T> + Copy, const N: usize> Mul<S> for Polynomial<T, N> {
     type Output = Self;
-    fn mul(self, rhs: S) -> Self::Output {
-        pol!(array![i => self.0[i]*rhs;N])
+    fn mul(mut self, rhs: S) -> Self::Output {
+        self.0.iter_mut().for_each(|x|*x = *x * rhs);
+        self
     }
 }
 impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> Add<Polynomial<S, N>>
     for Polynomial<T, N>
 {
     type Output = Self;
-    fn add(self, rhs: Polynomial<S, N>) -> Self::Output {
-        pol!(array![i=> self.0[i]+rhs.0[i];N])
+    fn add(mut self, rhs: Polynomial<S, N>) -> Self::Output {
+        self.0.iter_mut().zip(rhs.0).for_each(|(x,y)|*x = *x + y);
+        self
     }
 }
 impl<T: Neg<Output = T> + Copy, const N: usize> Neg for Polynomial<T, N> {
     type Output = Self;
-    fn neg(self) -> Self::Output {
-        pol!(array![i=>-self.0[i];N])
+    fn neg(mut self) -> Self::Output {
+        self.0.iter_mut().for_each(|x|*x = -*x);
+        self
     }
 }
 impl<S: Copy, T: Sub<S, Output = T> + Copy, const N: usize> Sub<Polynomial<S, N>>
     for Polynomial<T, N>
 {
     type Output = Self;
-    fn sub(self, rhs: Polynomial<S, N>) -> Self::Output {
-        pol!(array![i=>self.0[i]-rhs.0[i];N])
+    fn sub(mut self, rhs: Polynomial<S, N>) -> Self::Output {
+        self.0.iter_mut().zip(rhs.coefficient()).for_each(|(x,&y)|*x = *x - y);
+        self
     }
 }
 impl<T: Zero + Copy, const N: usize> Zero for Polynomial<T, N> {
@@ -193,7 +189,6 @@ impl<T: 'static + Num + Copy> AsPrimitive<T> for Binary {
         }
     }
 }
-
 impl Display for Binary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         (*self as u32).fmt(f)
