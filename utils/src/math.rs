@@ -1,8 +1,5 @@
 use array_macro::array;
-use num::{
-    cast::AsPrimitive, traits::WrappingAdd, Bounded, Float, Integer, Num, ToPrimitive, Unsigned,
-    Zero,
-};
+use num::{Bounded, Float, Integer, Num, ToPrimitive, Unsigned, Zero, cast::AsPrimitive, traits::{WrappingAdd, WrappingSub}};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::{
@@ -158,7 +155,7 @@ impl<
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
     pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
         let res: [[i32; L]; N] = array![ i => {
-            self.coef_(i).decomposition(bits)
+            self.coef_(i).decomposition_i32(bits)
         }; N];
         array![ i => {
             pol!(array![ j => res[j][i]; N])
@@ -280,10 +277,31 @@ impl<U: Unsigned + Copy> Decimal<U> {
 }
 impl Decimal<u32> {
     /// 2進表現から2^bits進表現に変換
-    /// N=u32::BITSを2^bitsで表現したときの有効桁数
-    pub fn decomposition<const L: usize>(self, bits: u32) -> [i32; L] {
-        assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
+    /// - res\[i\] in [-bg/2,bg/2) where bg = 2^bits
+    /// - N=u32::BITSを2^bitsで表現したときの有効桁数
+    pub fn decomposition_i32<const L: usize>(self, bits: u32) -> [i32; L] {
+        let u_res = self.decomposition_u32::<L>(bits);
+        // res={a_i}, a_i in [-bg/2,bg/2)
+        let bg = 2_u32.pow(bits);
+        let mut i_res = [i32::zero(); L];
+        for i in (0..L).rev() {
+            i_res[i] = if u_res[i] >= bg / 2 {
+                if i > 0 {
+                    i_res[i - 1] -= 1;
+                }
+                (u_res[i] as i32) - (bg as i32)
+            } else {
+                u_res[i] as i32
+            }
+        }
+        i_res
+    }
 
+    /// 2進表現から2^bits進表現に変換
+    /// - res\[i\] in [0,bg) where bg = 2^{bits}
+    /// - N=u32::BITSを2^bitsで表現したときの有効桁数
+    pub fn decomposition_u32<const L: usize>(self, bits: u32) -> [u32; L] {
+        assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
         const TOTAL: u32 = u32::BITS;
         let bg = 2_u32.pow(bits);
         let mask = bg - 1;
@@ -300,19 +318,7 @@ impl Decimal<u32> {
         let u_res = array![i => {
             (u >> (TOTAL - bits*((i+1) as u32))) & mask
         };L];
-        // res={a_i}, a_i in [-bg/2,bg/2)
-        let mut i_res = [i32::zero(); L];
-        for i in (0..L).rev() {
-            i_res[i] = if u_res[i] >= bg / 2 {
-                if i > 0 {
-                    i_res[i - 1] -= 1;
-                }
-                (u_res[i] as i32) - (bg as i32)
-            } else {
-                u_res[i] as i32
-            }
-        }
-        i_res
+        u_res
     }
 
     pub fn is_in(&self, p: Self, acc: f32) -> bool {
@@ -322,10 +328,21 @@ impl Decimal<u32> {
     }
 }
 impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
-    type Output = Decimal<U>;
-
+    type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         Decimal(self.0.wrapping_add(&rhs.0))
+    }
+}
+impl<U:Unsigned + WrappingSub> Sub for Decimal<U> {
+    type Output = Self;
+    fn sub(self,rhs:Self) -> Self::Output {
+        Decimal(self.0.wrapping_sub(&rhs.0))
+    }
+}
+impl<U: Unsigned + Sub<Output = U> + Bounded> Neg for Decimal<U> {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Decimal(U::max_value() - self.0)
     }
 }
 impl Mul<u32> for Decimal<u32> {
@@ -348,22 +365,6 @@ impl Mul<Binary> for Decimal<u32> {
     type Output = Self;
     fn mul(self, rhs: Binary) -> Self::Output {
         self * rhs as u32
-    }
-}
-impl<T: Unsigned + Sub<Output = T> + Bounded> Neg for Decimal<T> {
-    type Output = Self;
-    fn neg(self) -> Self::Output {
-        Decimal(T::max_value() - self.0)
-    }
-}
-impl<T: Unsigned> Sub for Decimal<T>
-where
-    Decimal<T>: Neg<Output = Self> + Add<Output = Self>,
-{
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        self + (-rhs)
     }
 }
 impl ToPrimitive for Decimal<u32> {
@@ -572,7 +573,7 @@ mod tests {
             res,
             {
                 let coef = pol.coef_(0);
-                let decomp = coef.decomposition::<7>(4);
+                let decomp = coef.decomposition_i32::<7>(4);
                 array![ i => {
                     pol!([decomp[i]])
                 };7]
@@ -809,23 +810,32 @@ mod tests {
     #[test]
     fn decimal_decomposition() {
         let dec = Decimal(0x80000000_u32);
-        let res = dec.decomposition::<32>(1);
+        let res = dec.decomposition_u32::<32>(1);
+        assert_eq!(
+            res,
+            [
+                1_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0
+            ],
+            "test1_u32"
+        );
+        let res = dec.decomposition_i32::<32>(1);
         assert_eq!(
             res,
             [
                 -1_i32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0
             ],
-            "test1"
+            "test1_i32"
         );
 
-        let res = dec.decomposition::<8>(4);
+        let res = dec.decomposition_i32::<8>(4);
         assert_eq!(
             res,
             [-8_i32, 0, 0, 0, 0, 0, 0, 0],
             "test2:[-2^bits/2,2^bits/2)で表現"
         );
-        let res = dec.decomposition::<7>(4);
+        let res = dec.decomposition_i32::<7>(4);
         assert_eq!(
             res,
             [-8_i32, 0, 0, 0, 0, 0, 0],
@@ -833,22 +843,31 @@ mod tests {
         );
 
         let dec = Decimal(0x8000_0001_u32);
-        let res = dec.decomposition::<31>(1);
+        let res = dec.decomposition_u32::<31>(1);
+        assert_eq!(
+            res,
+            [
+                1_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 1 /*ここはもとの数では0だけど四捨五入で-1*/
+            ],
+            "test3_u32: 繰り上がりがある。丸めるから"
+        );
+        let res = dec.decomposition_i32::<31>(1);
         assert_eq!(
             res,
             [
                 -1_i32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, -1 /*ここはもとの数では0だけど四捨五入で-1*/
             ],
-            "test3: 繰り上がりがある。丸めるから"
+            "test3_i32: 繰り上がりがある。丸めるから"
         );
 
         let dec = Decimal(0b000001_000010_000011_000000_000000_00u32);
-        let res = dec.decomposition::<3>(6);
+        let res = dec.decomposition_i32::<3>(6);
         assert_eq!(res, [1, 2, 3], "test4: 本番と同じ使い方。繰り上がりなし");
 
         let dec = Decimal(0b000001_000010_000011_100000_000000_00u32);
-        let res = dec.decomposition::<3>(6);
+        let res = dec.decomposition_i32::<3>(6);
         assert_eq!(res, [1, 2, 4], "test4: 本番と同じ使い方。繰り上がりあり");
     }
 

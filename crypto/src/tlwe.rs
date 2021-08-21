@@ -1,8 +1,6 @@
 use super::digest::{Crypto, Encryptable, Encrypted};
 use crate::digest::Cryptor;
-use itertools::iproduct;
 use num::{ToPrimitive, Zero};
-use std::mem::MaybeUninit;
 use std::ops::{Add, Mul, Sub};
 use utils::math::{Binary, ModDistribution, Random, Torus};
 use utils::torus;
@@ -16,6 +14,7 @@ macro_rules! tlwe_encryptable {
 tlwe_encryptable!(Binary);
 tlwe_encryptable!(Torus);
 
+#[derive(Clone, Copy)]
 pub struct TLWERep<const N: usize> {
     cipher: Torus,
     p_key: [Torus; N],
@@ -36,79 +35,32 @@ impl<const N: usize> TLWERep<N> {
         TLWERep { cipher, p_key }
     }
 
-    const IKS_L: usize = 8;
-    const IKS_BASEBIT: u32 = 2;
-    const IKS_T: usize = 2_usize.pow(Self::IKS_BASEBIT);
-    pub fn identity_key_switch<const M: usize>(
-        self,
-        ks: &[[[TLWERep<M>; Self::IKS_T]; Self::IKS_L]; N],
-    ) -> TLWERep<M> {
-        const BITS: u32 = u32::BITS;
-        const BASEBIT: u32 = TLWERep::<0>::IKS_BASEBIT;
-        const IKS_T: u32 = TLWERep::<0>::IKS_T as u32;
-        const IKS_L: usize = TLWERep::<0>::IKS_L;
-        const ROUND: u32 = 1 << (BITS - (1 + BASEBIT * IKS_T));
+    pub fn identity_key_switch<const M: usize>(self, ks: &KeySwitchingKey<N, M>) -> TLWERep<M> {
+        const BASEBIT: u32 = TLWEHelper::IKS_BASEBIT;
+        const IKS_L: usize = TLWEHelper::IKS_L;
 
         let (b_, a_) = self.get_and_drop();
         let tlwe_init = TLWERep::new(b_, [Torus::zero(); M]);
-        let tlwe = a_.iter().enumerate().fold(tlwe_init, |tlwe, (i, a_i)| {
-            let a_i = a_i.inner() + ROUND;
-            (0..IKS_L).fold(tlwe, |tlwe_, j| {
-                // a_i.decomposition(BASEBIT)[j]
-                let a_i_j = (a_i >> (BITS - (j as u32 + 1) * BASEBIT)) & (IKS_T as u32 - 1);
-                tlwe_
-                    - unsafe {
-                        ks.get_unchecked(i)
-                            .get_unchecked(j)
-                            .get_unchecked(a_i_j as usize)
+        let tlwe = a_.iter().enumerate().fold(tlwe_init, |tlwe, (i, &a_i)| {
+            let a_i_decomp = a_i.decomposition_u32::<IKS_L>(BASEBIT);
+            (0..IKS_L)
+                .zip(a_i_decomp)
+                .fold(tlwe, |tlwe_, (l, a_i_decomp_l)| {
+                    if a_i_decomp_l != 0 {
+                        tlwe_ - ks.get(i, l, a_i_decomp_l as usize)/*TODO: unsafe { ks.get_unchecked(i, l, a_i_decomp_l as usize) }*/
                     }
-            })
+                    else {
+                        tlwe_
+                    }
+                })
         });
         tlwe
-    }
-
-    pub fn into_key_switching_key<const M: usize>(
-        pre_s_key: [Binary; N],
-        next_s_key: &[Binary; M],
-    ) -> [[[TLWERep<M>; Self::IKS_T]; Self::IKS_L]; N] {
-        const BASEBIT: i32 = TLWERep::<0>::IKS_BASEBIT as i32;
-        const T: usize = TLWERep::<0>::IKS_T;
-        const L: usize = TLWERep::<0>::IKS_L;
-
-        let culc_tlwe = |s_i: Binary, l: i32, t: u32| {
-            // t*s_i/2^{basebit * l}
-            let item = torus!(s_i.to::<f32>() * 0.5_f32.powi(BASEBIT * l) * t as f32);
-            let tlwe = Cryptor::encrypto(TLWE, next_s_key, item);
-            tlwe
-        };
-        let mut arr: [[[MaybeUninit<TLWERep<M>>; T]; L]; N] =
-            unsafe { MaybeUninit::uninit().assume_init() };
-        // TODO: マルチスレッドで計算できる
-        for (&s_i, arr_i) in pre_s_key.iter().zip(arr.iter_mut()) {
-            for (l, arr_i_l) in arr_i.iter_mut().enumerate() {
-                for (t, arr_i_l_t) in arr_i_l.iter_mut().enumerate() {
-                    *arr_i_l_t = MaybeUninit::new(culc_tlwe(
-                        s_i,
-                        l as i32,
-                        1 + t as u32, /* t=0のときはarr_i_l_0 = 0なので計算しない */
-                    ));
-                }
-            }
-        }
-        utils::mem::transmute::<_, [[[TLWERep<M>; T]; L]; N]>(arr)
     }
 }
 impl<const N: usize> Add for TLWERep<N> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
-        let (b, a) = self.get_and_drop();
-        let (b_, a_) = rhs.get_and_drop();
-        let mut a_res = a;
-        a_res
-            .iter_mut()
-            .zip(a_.iter())
-            .for_each(|(x, &y)| *x = *x + y);
-        TLWERep::new(b + b_, a_res)
+        self + &rhs
     }
 }
 impl<const N: usize> Add<&Self> for TLWERep<N> {
@@ -127,14 +79,7 @@ impl<const N: usize> Add<&Self> for TLWERep<N> {
 impl<const N: usize> Sub for TLWERep<N> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        let (b, a) = self.get_and_drop();
-        let (b_, a_) = rhs.get_and_drop();
-        let mut a_res = a;
-        a_res
-            .iter_mut()
-            .zip(a_.iter())
-            .for_each(|(x, &y)| *x = *x - y);
-        TLWERep::new(b + b_, a_res)
+        self - &rhs
     }
 }
 impl<const N: usize> Sub<&Self> for TLWERep<N> {
@@ -147,7 +92,7 @@ impl<const N: usize> Sub<&Self> for TLWERep<N> {
             .iter_mut()
             .zip(a_.iter())
             .for_each(|(x, &y)| *x = *x - y);
-        TLWERep::new(b + *b_, a_res)
+        TLWERep::new(b - *b_, a_res)
     }
 }
 impl<const N: usize, Int: Copy> Mul<Int> for TLWERep<N>
@@ -161,11 +106,27 @@ where
         TLWERep::new(b * rhs, a)
     }
 }
+impl<const N: usize> Zero for TLWERep<N> {
+    fn zero() -> Self {
+        TLWERep::new(Torus::zero(), [Torus::zero(); N])
+    }
+    fn is_zero(&self) -> bool {
+        let TLWERep {
+            cipher: b,
+            p_key: a,
+        } = self;
+        b.is_zero() & a.iter().all(|x| x.is_zero())
+    }
+}
 
 pub struct TLWEHelper;
 impl TLWEHelper {
     pub const N: usize = 635;
     pub const ALPHA: f32 = 1.0 / (2_u32.pow(15) as f32); // 2^{-15}
+
+    pub const IKS_L: usize = 8;
+    pub const IKS_BASEBIT: u32 = 2;
+    pub const IKS_T: usize = 2_usize.pow(Self::IKS_BASEBIT);
     pub fn binary2torus(bin: Binary) -> Torus {
         torus!(match bin {
             Binary::One => 1.0 / 8.0,
@@ -228,12 +189,90 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
     }
 }
 
+pub struct KeySwitchingKey<const N: usize, const M: usize>(
+    Vec<[[TLWERep<M>; TLWEHelper::IKS_T]; TLWEHelper::IKS_L]>,
+);
+impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
+    pub fn new(pre_s_key: [Binary; N], next_s_key: &[Binary; M]) -> Self {
+        const BASEBIT: i32 = TLWEHelper::IKS_BASEBIT as i32;
+        const T: usize = TLWEHelper::IKS_T;
+        const L: usize = TLWEHelper::IKS_L;
+
+        let culc_tlwe = |s_i: Binary, l: u32, t: u32| {
+            // t*s_i/2^{basebit * l}
+            let item = torus!(s_i.to::<f32>() * 0.5_f32.powi(BASEBIT * l as i32) * t as f32);
+            let tlwe = Cryptor::encrypto(TLWE, next_s_key, item);
+            tlwe
+        };
+
+        let mut ks = Vec::<[[TLWERep<M>; T]; L]>::with_capacity(N);
+        unsafe { ks.set_len(N) }; // 初期化せずにアクセスするためのunsafe
+
+        for (&s_i, ks_i) in pre_s_key.iter().zip(ks.iter_mut()) {
+            // TODO: マルチスレッドで計算できる
+            for (l, ks_i_l) in ks_i.iter_mut().enumerate() {
+                for (t, ks_i_l_t) in ks_i_l.iter_mut().enumerate() {
+                    // KS[i][l][t] = TLWE((t+1)*s_i/(2^{bit*(l+1)}))を計算
+                    *ks_i_l_t = culc_tlwe(
+                        s_i,
+                        1 + l as u32, /* l >= 1について上式をTLWEしたものを計算 */
+                        1 + t as u32, /* t=0のときはarr_i_l_0 = 0なので計算しない */
+                    );
+                }
+            }
+        }
+        KeySwitchingKey(ks)
+    }
+    /// get(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE(t\*s_i/(2^{bit*(l+1)}))
+    pub fn get(&self, i: usize, l: usize, t: usize) -> TLWERep<M> {
+        if t <= 0 {
+            TLWERep::<M>::zero()
+        } else {
+            self.0[i][l][t as usize - 1]
+        }
+    }
+    /// get_unchecked(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE(t\*s_i/(2^{bit*(l+1)}))
+    pub unsafe fn get_unchecked(&self, i: usize, l: usize, t: usize) -> TLWERep<M> {
+        if t <= 0 {
+            TLWERep::<M>::zero()
+        } else {
+            *self
+                .0
+                .get_unchecked(i)
+                .get_unchecked(l)
+                .get_unchecked(t as usize - 1)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::digest::Cryptor;
+    use crate::{digest::Cryptor, trlwe::TRLWEHelper};
 
     use super::*;
     use utils::math::*;
+
+    #[test]
+    fn tlwerep_op() {
+        let l = TLWERep::new(torus!(0.5), [torus!(0.5), torus!(0.25)]);
+        let r = TLWERep::new(torus!(0.25), [torus!(0.125), torus!(0.5)]);
+
+        let res = l + r;
+        assert_eq!(res.cipher, torus!(0.75), "l_plus_r.cipher");
+        assert_eq!(res.p_key, [torus!(0.625), torus!(0.75)], "l_plus_r.p_key");
+
+        let res = l - r;
+        assert_eq!(res.cipher, torus!(0.25), "l_minus_r.cipher");
+        assert_eq!(res.p_key, [torus!(0.375), torus!(0.75)], "l_minus_r.p_key");
+
+        let res = l * 3;
+        assert_eq!(res.cipher, torus!(0.5));
+        assert_eq!(res.p_key, [torus!(0.5), torus!(0.75)]);
+
+        let res = l * 0;
+        assert_eq!(res.cipher, torus!(0.0));
+        assert_eq!(res.p_key, [torus!(0.0), torus!(0.0)]);
+    }
 
     #[test]
     fn tlwe_test() {
@@ -251,5 +290,31 @@ mod tests {
         for i in 0..100 {
             test(Binary::from(i % 2))
         }
+    }
+
+    #[test]
+    #[ignore] // KeySwitchingKeyの作成が重たいから
+    fn tlwe_identity_key_switching() {
+        const N: usize = TRLWEHelper::N;
+        const M: usize = TLWEHelper::N;
+        let mut b_uniform = BinaryDistribution::uniform();
+        let s_key_tlwelv1 = b_uniform.gen_n::<N>();
+        let s_key_tlwelv0 = b_uniform.gen_n::<M>();
+
+        let ks = KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0);
+
+        let test = |item: Binary| {
+            let rep_tlwelv1 = Cryptor::encrypto(TLWE, &s_key_tlwelv1, item);
+            {
+                let test: Binary = Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1);
+                assert_eq!(test, item, "tlweのテスト, item={}", item);
+            }
+            let rep_tlwelv0 = rep_tlwelv1.identity_key_switch(&ks);
+            let result: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_tlwelv0);
+            assert_eq!(result, item, "keyを変えてもidenitity, item={}", item);
+        };
+
+        test(Binary::One);
+        test(Binary::Zero);
     }
 }

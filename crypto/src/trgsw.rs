@@ -268,7 +268,7 @@ mod tests {
         {
             const N:usize = 1;
             let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
-            /* 
+
             let item: i32 = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
             let respect: Polynomial<Torus, N> = pol!([torus!(0.5)]);
@@ -295,7 +295,7 @@ mod tests {
                     respect,
                     actual
                 );
-            }*/
+            }
         }
 
         {
