@@ -20,6 +20,6 @@ mod tests {
 
     #[test]
     fn experiment() {
-        println!("{}",trlwe::TRLWEHelper::ALPHA);
+        println!("{}",-3_i32 as u32);
     }
 }
