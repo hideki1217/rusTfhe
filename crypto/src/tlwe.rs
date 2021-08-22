@@ -57,6 +57,10 @@ impl<const N: usize> TLWERep<N> {
         tlwe
     }
 
+    #[inline]
+    pub fn trivial_one(text: Torus) -> Self {
+        TLWERep::new(text, [Torus::zero(); N])
+    }
 }
 impl<const N: usize> Add for TLWERep<N> {
     type Output = Self;
@@ -170,8 +174,8 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
         let b = a
             .iter()
             .zip(key.iter())
-            .map(|(&a, &b)| a * b)
-            .fold(Torus::zero(), |s, x| s + x)
+            .filter(|(_, &b)| b == Binary::One)
+            .fold(Torus::zero(), |s, (&x, _)| s + x)
             + e
             + m;
         TLWERep::new(b, a)
@@ -182,8 +186,8 @@ impl<const N: usize> Crypto<Torus> for TLWE<N> {
         let a_cross_s = p_key
             .iter()
             .zip(s_key.iter())
-            .map(|(&a, &b)| a * b)
-            .fold(Torus::zero(), |s, x| s + x);
+            .filter(|(_, &b)| b == Binary::One)
+            .fold(Torus::zero(), |s, (&x, _)| s + x);
         let m_with_e = cipher - a_cross_s;
 
         m_with_e
@@ -296,28 +300,52 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // KeySwitchingKeyの作成が重たいから
     fn tlwe_identity_key_switching() {
-        const N: usize = TRLWEHelper::N;
-        const M: usize = TLWEHelper::N;
-        let mut b_uniform = BinaryDistribution::uniform();
-        let s_key_tlwelv1 = b_uniform.gen_n::<N>();
-        let s_key_tlwelv0 = b_uniform.gen_n::<M>();
+        {
+            const N: usize = TRLWEHelper::N;
+            const M: usize = TLWEHelper::N;
+            let mut b_uniform = BinaryDistribution::uniform();
+            let s_key_tlwelv1 = b_uniform.gen_n::<N>();
+            let s_key_tlwelv0 = b_uniform.gen_n::<M>();
 
-        let ks = KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0);
+            let ks = KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0);
 
-        let test = |item: Binary| {
-            let rep_tlwelv1 = Cryptor::encrypto(TLWE, &s_key_tlwelv1, item);
-            {
-                let test: Binary = Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1);
-                assert_eq!(test, item, "tlweのテスト, item={}", item);
-            }
-            let rep_tlwelv0 = rep_tlwelv1.identity_key_switch(&ks);
-            let result: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_tlwelv0);
-            assert_eq!(result, item, "keyを変えてもidenitity, item={}", item);
-        };
+            let test = |item: Binary| {
+                let rep_tlwelv1 = Cryptor::encrypto(TLWE, &s_key_tlwelv1, item);
+                {
+                    let test: Binary = Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1);
+                    assert_eq!(test, item, "Part1.tlweのテスト, item={}", item);
+                }
+                let rep_tlwelv0 = rep_tlwelv1.identity_key_switch(&ks);
+                let result: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_tlwelv0);
+                assert_eq!(result, item, "Part1.keyを変えてもidenitity, item={}", item);
+            };
 
-        test(Binary::One);
-        test(Binary::Zero);
+            test(Binary::One);
+            test(Binary::Zero);
+        }
+        {
+            const N: usize = 256;
+            const M: usize = 60;
+            let mut b_uniform = BinaryDistribution::uniform();
+            let s_key_tlwelv1 = b_uniform.gen_n::<N>();
+            let s_key_tlwelv0 = b_uniform.gen_n::<M>();
+
+            let ks = KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0);
+
+            let test = |item: Binary| {
+                let rep_tlwelv1 = Cryptor::encrypto(TLWE, &s_key_tlwelv1, item);
+                {
+                    let test: Binary = Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1);
+                    assert_eq!(test, item, "Part2.tlweのテスト, item={}", item);
+                }
+                let rep_tlwelv0 = rep_tlwelv1.identity_key_switch(&ks);
+                let result: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_tlwelv0);
+                assert_eq!(result, item, "Part2.keyを変えてもidenitity, item={}", item);
+            };
+
+            test(Binary::One);
+            test(Binary::Zero);
+        }
     }
 }

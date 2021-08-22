@@ -207,7 +207,7 @@ impl<const N: usize> Crypto<Binary> for TRGSW<N> {
     }
 
     fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Binary {
-        let res:i32 = self.decrypto(s_key, rep);
+        let res: i32 = self.decrypto(s_key, rep);
         Binary::from(res)
     }
 }
@@ -242,6 +242,9 @@ impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRep<N> {
 }
 
 impl<const N: usize> TRGSWRep<N> {
+    /// # Sample
+    /// let i: Binary;
+    /// TRGSW(i).cmux(rep_1,rep_0) = rep_i;
     pub fn cmux(&self, rep_1: TRLWERep<N>, rep_0: TRLWERep<N>) -> TRLWERep<N> {
         self.cross(&(rep_1 - rep_0)) + rep_0
     }
@@ -337,7 +340,9 @@ mod tests {
             let pol_i32: Polynomial<i32, N> = pol!([1, -1, 1]);
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, pol_i32.clone());
             let pol_torus: Polynomial<Torus, N> = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
-            let res_cross = rep_trgsw.cross(&TRLWERep::trivial_one(respect)/*&Cryptor::encrypto(TRLWE, &s_key, pol_torus)*/);
+            let res_cross = rep_trgsw.cross(
+                &TRLWERep::trivial_one(respect), /*&Cryptor::encrypto(TRLWE, &s_key, pol_torus)*/
+            );
             let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             let respect = pol_torus.cross(&pol_i32);
             for i in 0..N {
@@ -353,26 +358,68 @@ mod tests {
 
     #[test]
     fn trgsw_cmux() {
-        const N: usize = TRLWEHelper::N;
+        {
+            const N: usize = TRLWEHelper::N;
 
-        let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
+            let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
 
-        let item: i32 = 1;
-        let pol_0: Polynomial<Binary, N> = pol!([Binary::Zero; N]);
-        let pol_1: Polynomial<Binary, N> = pol!([Binary::One; N]);
+            let pol_0: Polynomial<Binary, N> = pol!([Binary::Zero; N]);
+            let pol_1: Polynomial<Binary, N> = pol!([Binary::One; N]);
 
-        let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
-        let rep_0_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_0.clone());
-        let rep_1_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_1.clone());
+            let rep_0_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_0);
+            let rep_1_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_1);
 
-        let result = rep_trgsw.cmux(rep_1_trlwe, rep_0_trlwe);
-        let text: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, result);
+            let item = 1;
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
+            let result = rep_trgsw.cmux(rep_1_trlwe, rep_0_trlwe);
+            let text: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, result);
+            assert_eq!(
+                pol_1, text,
+                "Part1.cmux Wrong: {0}*(pol_1-pol_0)+pol_0=pol_{0}",
+                item
+            );
 
-        assert_eq!(
-            pol_1, text,
-            "cmux Wrong: {0}*(pol_1-pol_0)+pol_0=pol_{0}",
-            item
-        );
+            let item = 0;
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
+            let result = rep_trgsw.cmux(rep_1_trlwe, rep_0_trlwe);
+            let text: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, result);
+            assert_eq!(
+                pol_0, text,
+                "Part1.cmux Wrong: {0}*(pol_1-pol_0)+pol_0=pol_{0}",
+                item
+            );
+        }
+        {
+            const N: usize = 256;
+
+            let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
+
+            let pol_0: Polynomial<Binary, N> = pol!([Binary::Zero; N]);
+            let pol_1: Polynomial<Binary, N> = pol!([Binary::One; N]);
+
+            let rep_0_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_0);
+            let rep_1_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_1);
+
+            let item = 1;
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
+            let result = rep_trgsw.cmux(rep_1_trlwe, rep_0_trlwe);
+            let text: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, result);
+            assert_eq!(
+                pol_1, text,
+                "Part2.cmux Wrong: {0}*(pol_1-pol_0)+pol_0=pol_{0}",
+                item
+            );
+
+            let item = 0;
+            let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
+            let result = rep_trgsw.cmux(rep_1_trlwe, rep_0_trlwe);
+            let text: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, result);
+            assert_eq!(
+                pol_0, text,
+                "Part2.cmux Wrong: {0}*(pol_1-pol_0)+pol_0=pol_{0}",
+                item
+            );
+        }
     }
 
     /// <2021/8/16> 40,921,939 ns/iter (+/- 4,744,092)

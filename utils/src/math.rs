@@ -1,8 +1,16 @@
 use array_macro::array;
-use num::{Float, Integer, Num, ToPrimitive, Unsigned, Zero, cast::AsPrimitive, traits::{WrappingAdd, WrappingSub},One};
+use num::{
+    cast::AsPrimitive,
+    traits::{WrappingAdd, WrappingSub},
+    Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
+};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use std::{fmt::Display, mem::MaybeUninit, ops::{Add, Mul, Neg, Sub}};
+use std::{
+    fmt::Display,
+    mem::MaybeUninit,
+    ops::{Add, Mul, Neg, Sub},
+};
 
 //Macro
 #[macro_export]
@@ -52,6 +60,13 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
     }
 }
 impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
+    /// # Expamle
+    /// ```
+    /// assert_eq!(pol!([1,2,3]).rotate(1),pol!([-3,1,2]));
+    /// assert_eq!(pol!([1,2,3]).rotate(-1),pol!([2,3,-1]));
+    /// assert_eq!(pol!([1,2,3]).rotate(3),pol!([-1,-2,-3]));
+    /// assert_eq!(pol!([1,2,3]).rotate(6),pol!([1,2,3]));
+    /// ```
     pub fn rotate(&self, n: i32) -> Self {
         let n = n.mod_floor(&(2 * N as i32)) as usize;
         if n <= N {
@@ -124,9 +139,9 @@ impl<
     fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
         // TODO: FFTにするとO(nlog(n))、今はn^2
         let poly_cross = |l: &[T; N], r: &[S; N]| {
-            let mut v = Vec::with_capacity( 2*N-1 );
-            unsafe { v.set_len(2*N-1 ) }; // この関数内でしか使わない
-            for (sum,v_sum) in v.iter_mut().enumerate() {
+            let mut v = Vec::with_capacity(2 * N - 1);
+            unsafe { v.set_len(2 * N - 1) }; // この関数内でしか使わない
+            for (sum, v_sum) in v.iter_mut().enumerate() {
                 *v_sum = T::zero();
                 let l_lim = if sum < (N - 1) { 0 } else { sum - (N - 1) };
                 let r_lim = sum.min(N - 1);
@@ -148,13 +163,13 @@ impl<
         Polynomial(m)
     }
 }
-impl<T,const N:usize> Polynomial<T,N> {
+impl<T, const N: usize> Polynomial<T, N> {
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_,T> {
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.0.iter()
     }
     #[inline]
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_,T> {
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
         self.0.iter_mut()
     }
 }
@@ -311,8 +326,8 @@ impl Decimal<u32> {
                 flag = true;
                 (u as i32) - (bg as i32)
             } else {
-            flag = false;
-            u as i32
+                flag = false;
+                u as i32
             }
         }
         i_res
@@ -329,11 +344,11 @@ impl Decimal<u32> {
 
         let Decimal(u) = self;
         // 丸める
-        let u = u + if (TOTAL - (L as u32) * bits) != 0 {
+        let u = u.wrapping_add(if (TOTAL - (L as u32) * bits) != 0 {
             1 << (TOTAL - (L as u32) * bits - 1)
         } else {
             0
-        };
+        });
 
         // res={a_i}, a_i in [0,bg)
         let u_res = array![i => {
@@ -596,15 +611,27 @@ mod tests {
             let l = pol!([torus!(0.25)]);
             let r = pol!([-1]);
             let res = l.cross(&r);
-            assert!(torus_range_eq(res.coef_(0), torus!(0.75), acc),"-1をかけたら反転");
+            assert!(
+                torus_range_eq(res.coef_(0), torus!(0.75), acc),
+                "-1をかけたら反転"
+            );
         }
         {
             let pol_i32 = pol!([1, -1, 1]);
             let pol_torus = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
             let res = pol_torus.cross(&pol_i32);
-            assert!(torus_range_eq(res.coef_(0), torus!(3.0/8.0), acc),"ノーマル 0");
-            assert!(torus_range_eq(res.coef_(1), torus!(-3.0/8.0), acc),"ノーマル 1");
-            assert!(torus_range_eq(res.coef_(2), torus!(3.0/8.0), acc),"ノーマル 2");
+            assert!(
+                torus_range_eq(res.coef_(0), torus!(3.0 / 8.0), acc),
+                "ノーマル 0"
+            );
+            assert!(
+                torus_range_eq(res.coef_(1), torus!(-3.0 / 8.0), acc),
+                "ノーマル 1"
+            );
+            assert!(
+                torus_range_eq(res.coef_(2), torus!(3.0 / 8.0), acc),
+                "ノーマル 2"
+            );
         }
     }
     #[test]
@@ -623,7 +650,10 @@ mod tests {
             "要素数1のPolynomialを展開"
         );
 
-        let pol = pol!([Decimal(0x0000_0001_u32)/*[0,1]*/, Decimal(0x0002_8000_u32)/*[3,-32768]*/]);
+        let pol = pol!([
+            Decimal(0x0000_0001_u32), /*[0,1]*/
+            Decimal(0x0002_8000_u32)  /*[3,-32768]*/
+        ]);
         let res = pol.decomposition::<2>(16);
         assert_eq!(
             res,
@@ -785,7 +815,7 @@ mod tests {
         test_i32(0.25, -2, 0.5);
         test_i32(0.125, -3, 0.625);
         test_i32(0.24, 0, 0.0);
-        test_i32(0.23,-1,0.77);
+        test_i32(0.23, -1, 0.77);
 
         let test_binary = |x: f32, y: Binary, z: f32| {
             let dx = torus!(x);
@@ -849,10 +879,28 @@ mod tests {
         test(-0.25, 0.25, 0.5);
         test(0.125, 0.625, 0.5);
         test(0.4, 0.2, 0.2);
+
+        let test = |x: f32, y: f32, z: f32, expect: f32| {
+            let acc = 1e-6;
+
+            let expect = torus!(expect);
+            let result = torus!(x) - (torus!(y) + torus!(z));
+
+            assert!(
+                torus_range_eq(result, expect, acc),
+                "result={:?},expect={:?}",
+                result,
+                expect,
+            );
+        };
+
+        test(0.5, 0.25, 0.125, 0.125);
+        test(0.23, 0.4, 0.83, 0.0);
+        test(0.4, 0.7, 0.4, 0.3);
     }
     #[test]
     fn decimal_decomposition() {
-        let dec = Decimal(0x80000000_u32);// 0.5
+        let dec = Decimal(0x80000000_u32); // 0.5
         let res = dec.decomposition_u32::<32>(1);
         assert_eq!(
             res,
@@ -899,8 +947,9 @@ mod tests {
         assert_eq!(
             res,
             [
-                0_i32, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-                -1, -1, -1, -1, -1 /*ここはもとの数では0だけど四捨五入で-1*/
+                0_i32, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                -1 /*ここはもとの数では0だけど四捨五入で-1*/
             ],
             "test3_i32: 繰り上がりがある。丸めるから"
         );
@@ -915,7 +964,7 @@ mod tests {
 
         let dec = Decimal(0b011111_100000_100000_000000_100000_00u32);
         let res = dec.decomposition_i32::<3>(6);
-        assert_eq!(res,[-32,-31,-32], "test5: 繰り上がりも桁上がりもある");
+        assert_eq!(res, [-32, -31, -32], "test5: 繰り上がりも桁上がりもある");
     }
 
     #[allow(dead_code)]
