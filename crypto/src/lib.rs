@@ -20,6 +20,6 @@ mod tests {
 
     #[test]
     fn experiment() {
-        println!("{}",-3_i32 as u32);
+        println!("{}",-3_i32 as u32 as i32);
     }
 }

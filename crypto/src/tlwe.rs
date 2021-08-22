@@ -56,6 +56,7 @@ impl<const N: usize> TLWERep<N> {
         });
         tlwe
     }
+
 }
 impl<const N: usize> Add for TLWERep<N> {
     type Output = Self;

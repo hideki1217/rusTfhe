@@ -1,12 +1,8 @@
 use array_macro::array;
-use num::{Bounded, Float, Integer, Num, Signed, ToPrimitive, Unsigned, Zero, cast::AsPrimitive, traits::{WrappingAdd, WrappingSub}};
+use num::{Float, Integer, Num, ToPrimitive, Unsigned, Zero, cast::AsPrimitive, traits::{WrappingAdd, WrappingSub},One};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use std::{
-    fmt::Display,
-    mem::MaybeUninit,
-    ops::{Add, Mul, Neg, Sub},
-};
+use std::{fmt::Display, mem::MaybeUninit, ops::{Add, Mul, Neg, Sub}};
 
 //Macro
 #[macro_export]
@@ -152,6 +148,16 @@ impl<
         Polynomial(m)
     }
 }
+impl<T,const N:usize> Polynomial<T,N> {
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_,T> {
+        self.0.iter()
+    }
+    #[inline]
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_,T> {
+        self.0.iter_mut()
+    }
+}
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
     pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
         let res: [[i32; L]; N] = array![ i => {
@@ -183,6 +189,21 @@ impl Binary {
             Binary::One => T::one(),
             Binary::Zero => T::zero(),
         }
+    }
+}
+impl ToPrimitive for Binary {
+    fn to_i64(&self) -> Option<i64> {
+        Some(match &self {
+            Binary::One => i64::one(),
+            Binary::Zero => i64::zero(),
+        })
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        Some(match &self {
+            Binary::One => u64::one(),
+            Binary::Zero => u64::zero(),
+        })
     }
 }
 impl<T: 'static + Num + Copy> AsPrimitive<T> for Binary {

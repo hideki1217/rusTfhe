@@ -19,6 +19,7 @@ trgsw_encryptable!(Polynomial<u32, N>);
 trgsw_encryptable!(Polynomial<i32, N>);
 trgsw_encryptable!(Polynomial<Binary, N>);
 trgsw_encryptable!(i32);
+trgsw_encryptable!(Binary);
 
 pub struct TRGSWRep<const N: usize> {
     cipher: [Polynomial<Torus, N>; 2 * TRGSWHelper::L],
@@ -91,10 +92,7 @@ impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
 
     fn encrypto(&self, s_key: &Self::SecretKey, item: Polynomial<i32, N>) -> Self::Representation {
         const L: usize = TRGSWHelper::L;
-        let (mut cipher, mut p_key) = (
-            [Polynomial::<Torus, N>::zero(); 2 * L],
-            [Polynomial::<Torus, N>::zero(); 2 * L],
-        ); //Self::create_zero_encrypted_pols::<{ 2 * L }>(s_key);
+        let (mut cipher, mut p_key) = Self::create_zero_encrypted_pols::<{ 2 * L }>(s_key);
         {
             const BG_INV: f32 = TRGSWHelper::BG_INV;
             for i in 0..L {
@@ -167,14 +165,11 @@ impl<const N: usize> Crypto<i32> for TRGSW<N> {
 
     fn encrypto(&self, s_key: &Self::SecretKey, item: i32) -> Self::Representation {
         const L: usize = TRGSWHelper::L;
-        let (mut cipher, mut p_key) = (
-            [Polynomial::<Torus, N>::zero(); 2 * L],
-            [Polynomial::<Torus, N>::zero(); 2 * L],
-        ); //Self::create_zero_encrypted_pols::<{ 2 * L }>(s_key);
+        let (mut cipher, mut p_key) = Self::create_zero_encrypted_pols::<{ 2 * L }>(s_key);
         {
             const BG_INV: f32 = TRGSWHelper::BG_INV;
             for i in 0..L {
-                let p = torus!(item as f32 * BG_INV.powi(1 + i as i32));
+                let p = torus!(item.to_f32().unwrap() * BG_INV.powi(1 + i as i32));
                 cipher[i] = cipher[i].add_constant(p);
                 p_key[i + L] = p_key[i + L].add_constant(p);
             }
@@ -201,6 +196,19 @@ impl<const N: usize> Crypto<i32> for TRGSW<N> {
         } else {
             res
         }
+    }
+}
+impl<const N: usize> Crypto<Binary> for TRGSW<N> {
+    type SecretKey = Polynomial<Binary, N>;
+    type Representation = TRGSWRep<N>;
+
+    fn encrypto(&self, s_key: &Self::SecretKey, item: Binary) -> Self::Representation {
+        self.encrypto(s_key, item.to_i32().unwrap())
+    }
+
+    fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Binary {
+        let res:i32 = self.decrypto(s_key, rep);
+        Binary::from(res)
     }
 }
 
@@ -281,7 +289,7 @@ mod tests {
             let item: i32 = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
             let respect: Polynomial<Torus, N> = pol!([torus!(0.5)]);
-            let res_cross = rep_trgsw.cross(&TRLWERep::trivial_one(respect)/*&Cryptor::encrypto(TRLWE, &s_key, respect)*/);
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, respect));
             let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {
                 assert!(
@@ -295,7 +303,7 @@ mod tests {
             let item: i32 = 3;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
             let respect: Polynomial<Torus, N> = pol!([torus!(0.5)]);
-            let res_cross = rep_trgsw.cross(&TRLWERep::trivial_one(respect)/*&Cryptor::encrypto(TRLWE, &s_key, respect)*/);
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, respect));
             let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {
                 assert!(
@@ -315,7 +323,7 @@ mod tests {
             let item: i32 = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
             let respect: Polynomial<Torus, N> = pol!([torus!(0.5), torus!(0.25), torus!(0.125)]);
-            let res_cross = rep_trgsw.cross(&TRLWERep::trivial_one(respect)/*&Cryptor::encrypto(TRLWE, &s_key, respect)*/);
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, respect));
             let actual: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {
                 assert!(
