@@ -1,9 +1,5 @@
 use array_macro::array;
-use num::{
-    cast::AsPrimitive,
-    traits::{MulAdd, WrappingAdd, WrappingSub},
-    Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
-};
+use num::{Float, FromPrimitive, Integer, Num, One, ToPrimitive, Unsigned, Zero, traits::{MulAdd, WrappingAdd, WrappingSub}};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::{
@@ -13,6 +9,7 @@ use std::{
 };
 
 use crate::mem;
+use rustfft::{FftPlanner, num_complex::Complex};
 
 //Macro
 #[macro_export]
@@ -189,6 +186,9 @@ impl<S: Copy, T: Sub<Output = T> + Copy + Zero + MulAdd<S, Output = T>, const N:
 {
     type Output = Self;
     fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
+        let mut fft = FftPlanner::<f32>::new();
+        fft.plan_fft_forward(N);
+        let mut buffer = array![ i => Complex::from_f32(self.coef_(i)) ; N];
         // TODO: FFTにするとO(nlog(n))、今はn^2
         let mut arr: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
         for (sum, arr_i) in arr.iter_mut().enumerate() {
