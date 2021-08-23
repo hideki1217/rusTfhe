@@ -423,6 +423,7 @@ mod tests {
     }
 
     /// <2021/8/16> 40,921,939 ns/iter (+/- 4,744,092)
+    /// <2021/8/23> 24,759,582 ns/iter (+/- 4,053,680) crossの中でvecをallocateするのをやめた
     #[bench]
     fn bench_trgsw_cross(b: &mut Bencher) {
         const N: usize = TRLWEHelper::N;

@@ -12,6 +12,8 @@ use std::{
     ops::{Add, Mul, Neg, Sub},
 };
 
+use crate::mem;
+
 //Macro
 #[macro_export]
 macro_rules! pol {
@@ -33,7 +35,7 @@ pub trait Cross<T> {
 /**
 P(X) = SUM_{i=0}^{N-1} 0\[i\]X^i
 を表す。
-X^Nを法とした剰余環上の値
+X^N+1を法とした剰余環上の値
  */
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Polynomial<T, const N: usize>([T; N]);
@@ -62,6 +64,7 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
 impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
     /// # Expamle
     /// ```
+    /// import utils::pol;
     /// assert_eq!(pol!([1,2,3]).rotate(1),pol!([-3,1,2]));
     /// assert_eq!(pol!([1,2,3]).rotate(-1),pol!([2,3,-1]));
     /// assert_eq!(pol!([1,2,3]).rotate(3),pol!([-1,-2,-3]));
@@ -96,8 +99,19 @@ impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> Add<Polynomial<S, N>
     for Polynomial<T, N>
 {
     type Output = Self;
-    fn add(mut self, rhs: Polynomial<S, N>) -> Self::Output {
-        self.0.iter_mut().zip(rhs.0).for_each(|(x, y)| *x = *x + y);
+    fn add(self, rhs: Polynomial<S, N>) -> Self::Output {
+        self.add(&rhs)
+    }
+}
+impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> Add<&Polynomial<S, N>>
+    for Polynomial<T, N>
+{
+    type Output = Self;
+    fn add(mut self, rhs: &Polynomial<S, N>) -> Self::Output {
+        self.0
+            .iter_mut()
+            .zip(rhs.iter())
+            .for_each(|(x, &y)| *x = *x + y);
         self
     }
 }
@@ -112,10 +126,18 @@ impl<S: Copy, T: Sub<S, Output = T> + Copy, const N: usize> Sub<Polynomial<S, N>
     for Polynomial<T, N>
 {
     type Output = Self;
-    fn sub(mut self, rhs: Polynomial<S, N>) -> Self::Output {
+    fn sub(self, rhs: Polynomial<S, N>) -> Self::Output {
+        self.sub(&rhs)
+    }
+}
+impl<S: Copy, T: Sub<S, Output = T> + Copy, const N: usize> Sub<&Polynomial<S, N>>
+    for Polynomial<T, N>
+{
+    type Output = Self;
+    fn sub(mut self, rhs: &Polynomial<S, N>) -> Self::Output {
         self.0
             .iter_mut()
-            .zip(rhs.coefficient())
+            .zip(rhs.iter())
             .for_each(|(x, &y)| *x = *x - y);
         self
     }
@@ -138,29 +160,24 @@ impl<
     type Output = Self;
     fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
         // TODO: FFTにするとO(nlog(n))、今はn^2
-        let poly_cross = |l: &[T; N], r: &[S; N]| {
-            let mut v = Vec::with_capacity(2 * N - 1);
-            unsafe { v.set_len(2 * N - 1) }; // この関数内でしか使わない
-            for (sum, v_sum) in v.iter_mut().enumerate() {
-                *v_sum = T::zero();
-                let l_lim = if sum < (N - 1) { 0 } else { sum - (N - 1) };
-                let r_lim = sum.min(N - 1);
-                // p(x)*q(x) = \sum_{s=0}^{2*(n-1)} \sum_{i=max(0,sum-(n-1))^{min(sum,n-1)} p_i * q_{sum-i}
-                for j in l_lim..=r_lim {
-                    *v_sum = *v_sum + l[sum - j] * r[j];
-                }
+        let mut arr:[MaybeUninit<T>;N] = unsafe { MaybeUninit::uninit().assume_init() };
+        let convolution = |sum:usize| {
+            let l_lim = sum.checked_sub(N - 1).unwrap_or(0);
+            let r_lim = sum.min(N - 1);
+            (l_lim..=r_lim).fold(T::zero(), |t, j| {
+                t + unsafe { *self.coefficient().get_unchecked(sum - j) * *rhs.coefficient().get_unchecked(j) }
+            })
+        };
+        for (sum,arr_i) in arr.iter_mut().enumerate() {
+            // p(x)*q(x) = \sum_{s=0}^{2*(n-1)} \sum_{i=max(0,sum-(n-1))^{min(sum,n-1)} p_i * q_{sum-i} mod X^N+1
+            if sum < N -1 { 
+                *arr_i = MaybeUninit::new(convolution(sum) - convolution(N+sum) );
             }
-            v
-        };
-        // X^N+1で割ったあまりを返す
-        let modulo = |pol: Vec<T> /*SIZE=2*N-1*/| {
-            let res: [T; N] = array![i=>if i<N-1 { pol[i]-pol[N+i] } else {pol[i]};N];
-            res
-        };
-
-        let v = poly_cross(&self.0, &rhs.0);
-        let m = modulo(v);
-        Polynomial(m)
+            else {
+                *arr_i = MaybeUninit::new(convolution(sum));
+            }
+        }
+        Polynomial(mem::transmute::<_,[T;N]>(arr))
     }
 }
 impl<T, const N: usize> Polynomial<T, N> {
@@ -306,6 +323,7 @@ impl<U: Unsigned> Decimal<U> {
     }
 }
 impl<U: Unsigned + Copy> Decimal<U> {
+    #[inline]
     pub fn inner(&self) -> U {
         self.0
     }
@@ -315,18 +333,18 @@ impl Decimal<u32> {
     /// - res\[i\] in [-bg/2,bg/2) where bg = 2^bits
     /// - N=u32::BITSを2^bitsで表現したときの有効桁数
     pub fn decomposition_i32<const L: usize>(self, bits: u32) -> [i32; L] {
-        let u_res = self.decomposition_u32::<L>(bits);
+        let mut u_res = self.decomposition_u32::<L>(bits);
         // res={a_i}, a_i in [-bg/2,bg/2)
         let bg = 2_u32.pow(bits);
         let mut i_res = [i32::zero(); L];
-        let mut flag = false;
         for i in (0..L).rev() {
-            let u = u_res[i] + if flag { 1 } else { 0 };
+            let u = u_res[i];
             i_res[i] = if u >= bg / 2 {
-                flag = true;
+                if i > 0 {
+                    u_res[i - 1] += 1;
+                }
                 (u as i32) - (bg as i32)
             } else {
-                flag = false;
                 u as i32
             }
         }
