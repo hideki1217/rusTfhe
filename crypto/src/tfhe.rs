@@ -1,5 +1,5 @@
 use crate::digest::Cryptor;
-use crate::tlwe::{self, KeySwitchingKey};
+use crate::tlwe::KeySwitchingKey;
 use crate::trgsw::TRGSW;
 use crate::{digest::Encrypted, tlwe::TLWERep, trgsw::TRGSWRep, trlwe::TRLWERep};
 use num::ToPrimitive;
@@ -21,14 +21,8 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
         ks: &KeySwitchingKey<TRLWE_N, TLWE_N>,
     ) -> TLWERep<TLWE_N> {
-        println!(
-            "input_0.cipher={},input_1.cipher={}",
-            input_0.cipher(),
-            input_1.cipher()
-        );
         let tlwelv0 = // 1 1 => < 0, other => > 0
             TLWERep::trivial_one(torus!(TFHEHelper::COEF)) - (input_0 + input_1);
-        println!("tlwelv0.cipher={}", tlwelv0.cipher());
         let tlwelv1 = Self::gate_bootstrapping_tlwe2tlwe(tlwelv0, bk);
         tlwelv1.identity_key_switch(ks)
     }
@@ -87,12 +81,12 @@ impl<const PRE_N: usize, const N: usize> BootstrappingKey<PRE_N, N> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use utils::math::{BinaryDistribution, Random};
+    use utils::timeit;
+    use std::time;
 
     use crate::tlwe::{TLWEHelper, TLWE};
-
+    use test::Bencher;
     use super::*;
 
     #[test]
@@ -103,24 +97,18 @@ mod tests {
         let s_key_tlwelv0 = unif.gen_n::<TLWE_N>();
         let s_key_tlwelv1 = unif.gen_n::<TRLWE_N>();
 
-        let start = Instant::now();
-        let ksk = KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0);
-        println!("complete: ksk, {}ms",start.elapsed().as_millis());
-        let start = Instant::now();
-        let bk = BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1));
-        println!("complete bk, {}ms",start.elapsed().as_millis());
+        let ksk = timeit!("make ksk",KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0));
+        let bk = timeit!("make bk",BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1)));
 
         {
             // Nandか確認
             let tlwelv0_1 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
             let tlwelv0_0 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
 
-            let start = Instant::now();
-            let rep_0_0 = TFHE::hom_nand(tlwelv0_0(), tlwelv0_0(), &bk, &ksk);
-            println!("complete: a hom_nand, {}ms",start.elapsed().as_millis());
-            let rep_0_1 = TFHE::hom_nand(tlwelv0_0(), tlwelv0_1(), &bk, &ksk);
-            let rep_1_0 = TFHE::hom_nand(tlwelv0_1(), tlwelv0_0(), &bk, &ksk);
-            let rep_1_1 = TFHE::hom_nand(tlwelv0_1(), tlwelv0_1(), &bk, &ksk);
+            let rep_0_0 = timeit!("hom nand 0 0",TFHE::hom_nand(tlwelv0_0(), tlwelv0_0(), &bk, &ksk));
+            let rep_0_1 = timeit!("hom nand 0 1",TFHE::hom_nand(tlwelv0_0(), tlwelv0_1(), &bk, &ksk));
+            let rep_1_0 = timeit!("hom nand 1 0",TFHE::hom_nand(tlwelv0_1(), tlwelv0_0(), &bk, &ksk));
+            let rep_1_1 = timeit!("hom nand 1 1",TFHE::hom_nand(tlwelv0_1(), tlwelv0_1(), &bk, &ksk));
 
             let res_0_0: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_0_0);
             let res_0_1: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_0_1);
@@ -136,6 +124,26 @@ mod tests {
                 res_1_0,
                 res_1_1
             );
+        }
+    }
+
+    /// <2021/8/24> 
+    #[bench]
+    fn tfhe_hom_nand_bench(bencher:&mut Bencher) {
+        const TLWE_N: usize = TLWEHelper::N;
+        const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;
+        let mut unif = BinaryDistribution::uniform();
+        let s_key_tlwelv0 = unif.gen_n::<TLWE_N>();
+        let s_key_tlwelv1 = unif.gen_n::<TRLWE_N>();
+
+        let ksk = timeit!("make ksk",KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0));
+        let bk = timeit!("make bk",BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1)));
+
+        {
+            let tlwelv0_1 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
+            let tlwelv0_0 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
+
+            bencher.iter(|| TFHE::hom_nand(tlwelv0_1, tlwelv0_0, &bk, &ksk));
         }
     }
 }
