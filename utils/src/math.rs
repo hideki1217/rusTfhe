@@ -1,7 +1,7 @@
 use array_macro::array;
 use num::{
     cast::AsPrimitive,
-    traits::{WrappingAdd, WrappingSub},
+    traits::{MulAdd, WrappingAdd, WrappingSub},
     Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
 };
 use rand::{prelude::ThreadRng, Rng};
@@ -9,7 +9,7 @@ use rand_distr::{Distribution, Normal, Uniform};
 use std::{
     fmt::Display,
     mem::MaybeUninit,
-    ops::{Add, Mul, Neg, Sub},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 
 use crate::mem;
@@ -63,8 +63,7 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
 }
 impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
     /// # Expamle
-    /// ```
-    /// import utils::pol;
+    /// ```ignore
     /// assert_eq!(pol!([1,2,3]).rotate(1),pol!([-3,1,2]));
     /// assert_eq!(pol!([1,2,3]).rotate(-1),pol!([2,3,-1]));
     /// assert_eq!(pol!([1,2,3]).rotate(3),pol!([-1,-2,-3]));
@@ -81,11 +80,9 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
         }
     }
 }
-impl<T: Add<Output = T> + Copy, const N: usize> Polynomial<T, N> {
-    pub fn add_constant(self, rhs: T) -> Polynomial<T, N> {
-        let mut coefs = self.0;
-        coefs[0] = coefs[0] + rhs;
-        pol!(coefs)
+impl<T: AddAssign + Copy, const N: usize> Polynomial<T, N> {
+    pub fn add_constant(&mut self, rhs: T) {
+        self.0[0] += rhs;
     }
 }
 impl<S: Copy, T: Mul<S, Output = T> + Copy, const N: usize> Mul<S> for Polynomial<T, N> {
@@ -113,6 +110,42 @@ impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> Add<&Polynomial<S, N
             .zip(rhs.iter())
             .for_each(|(x, &y)| *x = *x + y);
         self
+    }
+}
+impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> AddAssign<Polynomial<S, N>>
+    for Polynomial<T, N>
+{
+    fn add_assign(&mut self, rhs: Polynomial<S, N>) {
+        self.add_assign(&rhs)
+    }
+}
+impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> AddAssign<&Polynomial<S, N>>
+    for Polynomial<T, N>
+{
+    fn add_assign(&mut self, rhs: &Polynomial<S, N>) {
+        self.0
+            .iter_mut()
+            .zip(rhs.iter())
+            .for_each(|(x, &y)| *x = *x + y);
+    }
+}
+impl<S, T, const N: usize> MulAdd<&Polynomial<S, N>, Polynomial<T, N>> for &Polynomial<T, N>
+where
+    T: MulAdd<S, Output = T> + Zero + Copy + Sub<Output = T>,
+    S: Copy,
+{
+    type Output = Polynomial<T, N>;
+    fn mul_add(self, a: &Polynomial<S, N>, mut b: Polynomial<T, N>) -> Self::Output {
+        b.iter_mut().enumerate().for_each(|(k, b_)| {
+            *b_ = *b_
+                + if k < N - 1 {
+                    convolution(self.coefficient(), a.coefficient(), k)
+                        - convolution(self.coefficient(), a.coefficient(), k + N)
+                } else {
+                    convolution(self.coefficient(), a.coefficient(), k)
+                };
+        });
+        b
     }
 }
 impl<T: Neg<Output = T> + Copy, const N: usize> Neg for Polynomial<T, N> {
@@ -151,33 +184,25 @@ impl<T: Zero + Copy, const N: usize> Zero for Polynomial<T, N> {
     }
 }
 /// X^N+1を法とした多項式乗算
-impl<
-        S: Copy,
-        T: Mul<S, Output = T> + Add<Output = T> + Sub<Output = T> + Copy + Zero,
-        const N: usize,
-    > Cross<Polynomial<S, N>> for Polynomial<T, N>
+impl<S: Copy, T: Sub<Output = T> + Copy + Zero + MulAdd<S, Output = T>, const N: usize>
+    Cross<Polynomial<S, N>> for Polynomial<T, N>
 {
     type Output = Self;
     fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
         // TODO: FFTにするとO(nlog(n))、今はn^2
-        let mut arr:[MaybeUninit<T>;N] = unsafe { MaybeUninit::uninit().assume_init() };
-        let convolution = |sum:usize| {
-            let l_lim = sum.checked_sub(N - 1).unwrap_or(0);
-            let r_lim = sum.min(N - 1);
-            (l_lim..=r_lim).fold(T::zero(), |t, j| {
-                t + unsafe { *self.coefficient().get_unchecked(sum - j) * *rhs.coefficient().get_unchecked(j) }
-            })
-        };
-        for (sum,arr_i) in arr.iter_mut().enumerate() {
+        let mut arr: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+        for (sum, arr_i) in arr.iter_mut().enumerate() {
             // p(x)*q(x) = \sum_{s=0}^{2*(n-1)} \sum_{i=max(0,sum-(n-1))^{min(sum,n-1)} p_i * q_{sum-i} mod X^N+1
-            if sum < N -1 { 
-                *arr_i = MaybeUninit::new(convolution(sum) - convolution(N+sum) );
-            }
-            else {
-                *arr_i = MaybeUninit::new(convolution(sum));
+            if sum < N - 1 {
+                *arr_i = MaybeUninit::new(
+                    convolution(self.coefficient(), rhs.coefficient(), sum)
+                        - convolution(self.coefficient(), rhs.coefficient(), N + sum),
+                );
+            } else {
+                *arr_i = MaybeUninit::new(convolution(self.coefficient(), rhs.coefficient(), sum));
             }
         }
-        Polynomial(mem::transmute::<_,[T;N]>(arr))
+        Polynomial(mem::transmute::<_, [T; N]>(arr))
     }
 }
 impl<T, const N: usize> Polynomial<T, N> {
@@ -206,7 +231,7 @@ pub enum Binary {
     One = 1,
     Zero = 0,
 }
-impl<T: Num> From<T> for Binary {
+impl<T: Zero + PartialEq> From<T> for Binary {
     fn from(t: T) -> Self {
         if t == T::zero() {
             Binary::Zero
@@ -218,29 +243,6 @@ impl<T: Num> From<T> for Binary {
 impl Binary {
     pub fn to<T: Num>(&self) -> T {
         match self {
-            Binary::One => T::one(),
-            Binary::Zero => T::zero(),
-        }
-    }
-}
-impl ToPrimitive for Binary {
-    fn to_i64(&self) -> Option<i64> {
-        Some(match &self {
-            Binary::One => i64::one(),
-            Binary::Zero => i64::zero(),
-        })
-    }
-
-    fn to_u64(&self) -> Option<u64> {
-        Some(match &self {
-            Binary::One => u64::one(),
-            Binary::Zero => u64::zero(),
-        })
-    }
-}
-impl<T: 'static + Num + Copy> AsPrimitive<T> for Binary {
-    fn as_(self) -> T {
-        match &self {
             Binary::One => T::one(),
             Binary::Zero => T::zero(),
         }
@@ -387,10 +389,20 @@ impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
         Decimal(self.0.wrapping_add(&rhs.0))
     }
 }
+impl<U: Unsigned + WrappingAdd> AddAssign for Decimal<U> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 = self.0.wrapping_add(&rhs.0);
+    }
+}
 impl<U: Unsigned + WrappingSub> Sub for Decimal<U> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Decimal(self.0.wrapping_sub(&rhs.0))
+    }
+}
+impl<U: Unsigned + WrappingSub> SubAssign for Decimal<U> {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 = self.0.wrapping_sub(&rhs.0);
     }
 }
 impl<U: Unsigned + WrappingSub> Neg for Decimal<U> {
@@ -419,6 +431,15 @@ impl Mul<Binary> for Decimal<u32> {
     type Output = Self;
     fn mul(self, rhs: Binary) -> Self::Output {
         self * rhs as u32
+    }
+}
+impl<T> MulAdd<T> for Decimal<u32>
+where
+    Self: Mul<T, Output = Self>,
+{
+    type Output = Self;
+    fn mul_add(self, a: T, b: Self) -> Self::Output {
+        self * a + b
     }
 }
 impl ToPrimitive for Decimal<u32> {
@@ -536,6 +557,21 @@ impl Display for Decimal<u32> {
     }
 }
 
+// ヘルパー関数たち
+
+/// k < 2*N - 1
+pub fn convolution<T, S, const N: usize>(l: &[T; N], r: &[S; N], k: usize) -> T
+where
+    T: MulAdd<S, Output = T> + Zero + Copy,
+    S: Copy,
+{
+    let l_lim = k.checked_sub(N - 1).unwrap_or(0);
+    let r_lim = k.min(N - 1);
+    (l_lim..=r_lim).fold(T::zero(), |t, j| unsafe {
+        (*l.get_unchecked(k - j)).mul_add(*r.get_unchecked(j), t)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -650,6 +686,27 @@ mod tests {
                 torus_range_eq(res.coef_(2), torus!(3.0 / 8.0), acc),
                 "ノーマル 2"
             );
+        }
+    }
+    #[test]
+    fn polynomial_mul_add() {
+        let l_f = pol!([2, 3, 4]);
+        let r_i = pol!([4, 5, 6]);
+        let a_i = pol!([1, 1, 1]);
+
+        assert_eq!((&l_f).mul_add(&r_i, a_i), pol!([-29, -1, 44]));
+        assert_eq!(l_f.mul_add(&r_i, a_i), pol!([-29, -1, 44]));
+
+        // decimal * i32
+        let acc: f32 = 1e-6;
+        {
+            let l_d = pol!([torus!(0.5), torus!(0.75)]);
+            let r_i = pol!([2, 3]);
+            let a_d = pol!([torus!(0.125), torus!(0.25)]);
+
+            let res = l_d.mul_add(&r_i, a_d);
+            assert!(torus_range_eq(res.coef_(0), torus!(0.875), acc));
+            assert!(torus_range_eq(res.coef_(1), torus!(0.25), acc));
         }
     }
     #[test]

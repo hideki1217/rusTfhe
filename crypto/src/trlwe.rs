@@ -1,7 +1,8 @@
 use std::ops::{Add, Sub};
 
 use array_macro::array;
-use num::{ToPrimitive,Zero};
+use num::traits::MulAdd;
+use num::{ToPrimitive, Zero};
 
 use crate::tlwe::TLWERep;
 
@@ -18,7 +19,7 @@ macro_rules! trlwe_encryptable {
 trlwe_encryptable!(Polynomial<Torus, N>);
 trlwe_encryptable!(Polynomial<Binary, N>);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct TRLWERep<const N: usize> {
     cipher: Polynomial<Torus, N>,
     p_key: Polynomial<Torus, N>,
@@ -38,23 +39,35 @@ impl<const N: usize> TRLWERep<N> {
     pub fn new(cipher: Polynomial<Torus, N>, p_key: Polynomial<Torus, N>) -> Self {
         TRLWERep { cipher, p_key }
     }
-    pub fn map<F:Fn(&Polynomial<Torus, N>) -> Polynomial<Torus, N>>(&self,f:F) -> Self{
-        TRLWERep::new(f(self.cipher()),f(self.p_key()))
+    pub fn map<F: Fn(&Polynomial<Torus, N>) -> Polynomial<Torus, N>>(&self, f: F) -> Self {
+        TRLWERep::new(f(self.cipher()), f(self.p_key()))
     }
-    pub fn trivial_one(text: Polynomial<Torus,N>)->Self {
-        TRLWERep::new(text,pol!([Torus::zero();N]))
+    pub fn trivial_one(text: Polynomial<Torus, N>) -> Self {
+        TRLWERep::new(text, pol!([Torus::zero(); N]))
     }
 }
 impl<const N: usize> Add for TRLWERep<N> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
-        TRLWERep::new(self.cipher + rhs.cipher, self.p_key + rhs.p_key)
+        self.add(&rhs)
+    }
+}
+impl<const N: usize> Add<&TRLWERep<N>> for TRLWERep<N> {
+    type Output = Self;
+    fn add(self, rhs: &TRLWERep<N>) -> Self::Output {
+        TRLWERep::new(self.cipher + rhs.cipher(), self.p_key + rhs.p_key())
     }
 }
 impl<const N: usize> Sub for TRLWERep<N> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        TRLWERep::new(self.cipher - rhs.cipher, self.p_key - rhs.p_key)
+        self.sub(&rhs)
+    }
+}
+impl<const N: usize> Sub<&TRLWERep<N>> for TRLWERep<N> {
+    type Output = Self;
+    fn sub(self, rhs: &TRLWERep<N>) -> Self::Output {
+        TRLWERep::new(self.cipher - rhs.cipher(), self.p_key - rhs.p_key())
     }
 }
 
@@ -95,7 +108,7 @@ impl<const N: usize> TRLWERep<N> {
     そこを取り出す。
     */
     pub fn sample_extract_index(&self, index: usize) -> TLWERep<N> {
-        let (cipher, p_key) = self.get_and_drop();
+        let (cipher, p_key) = self.get_ref();
         let a_ = array![ i => {
             if i <= index {
                 p_key.coef_(index-i)
@@ -119,7 +132,7 @@ impl<const N: usize> Crypto<Polynomial<Torus, N>> for TRLWE<N> {
         let a = pol!(unif.gen_n::<N>());
         let e = pol!(norm.gen_n::<N>());
 
-        let b = a.cross(&key) + rep + e;
+        let b = a.mul_add(key, rep + e);
 
         TRLWERep::new(b, a)
     }
@@ -169,7 +182,7 @@ mod tests {
             let s_key = pol!(b_unif.gen_n::<N>());
             let rep = Cryptor::encrypto(TRLWE, &s_key, item.clone());
 
-            let res_trlwe: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, rep);
+            let res_trlwe: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, rep.clone());
             assert_eq!(res_trlwe, item, "Trlwe is Wrong,");
             for i in 0..N {
                 let encrypted = rep.sample_extract_index(i);
@@ -207,9 +220,9 @@ mod tests {
         }
 
         let s_key = pol!(b_unif.gen_n::<N>());
-        let pol = pol!([torus!(0.5);N]);
+        let pol = pol!([torus!(0.5); N]);
         let rep = TRLWERep::trivial_one(pol);
-        let res: Polynomial<Torus,N> = Cryptor::decrypto(TRLWE, &s_key, rep);
-        assert_eq!(res,pol,"trivialな暗号文を複号してみた");
+        let res: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, &s_key, rep);
+        assert_eq!(res, pol, "trivialな暗号文を複号してみた");
     }
 }

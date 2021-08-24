@@ -14,7 +14,7 @@ macro_rules! tlwe_encryptable {
 tlwe_encryptable!(Binary);
 tlwe_encryptable!(Torus);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct TLWERep<const N: usize> {
     cipher: Torus,
     p_key: [Torus; N],
@@ -228,27 +228,20 @@ impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
         }
         KeySwitchingKey(ks)
     }
+    /// 引数についての境界チェックあり
     /// # Return
     /// get_unchecked(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE::encrypto(t\*s_i/(2^{bit\*(l+1)}))
-    pub fn get(&self, i: usize, l: usize, t: usize) -> TLWERep<M> {
-        if t <= 0 {
-            TLWERep::<M>::zero()
-        } else {
-            self.0[i][l][t as usize - 1]
-        }
+    pub fn get(&self, i: usize, l: usize, t: usize) -> &TLWERep<M> {
+        &self.0[i][l][t as usize - 1]
     }
+    /// 引数についての境界チェックをしない
     /// # Return
     /// get_unchecked(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE::encrypto(t\*s_i/(2^{bit\*(l+1)}))
-    pub unsafe fn get_unchecked(&self, i: usize, l: usize, t: usize) -> TLWERep<M> {
-        if t <= 0 {
-            TLWERep::<M>::zero()
-        } else {
-            *self
-                .0
-                .get_unchecked(i)
-                .get_unchecked(l)
-                .get_unchecked(t as usize - 1)
-        }
+    pub unsafe fn get_unchecked(&self, i: usize, l: usize, t: usize) -> &TLWERep<M> {
+        self.0
+            .get_unchecked(i)
+            .get_unchecked(l)
+            .get_unchecked(t as usize - 1)
     }
 }
 
@@ -264,19 +257,19 @@ mod tests {
         let l = TLWERep::new(torus!(0.5), [torus!(0.5), torus!(0.25)]);
         let r = TLWERep::new(torus!(0.25), [torus!(0.125), torus!(0.5)]);
 
-        let res = l + r;
+        let res = l.clone() + r.clone();
         assert_eq!(res.cipher, torus!(0.75), "l_plus_r.cipher");
         assert_eq!(res.p_key, [torus!(0.625), torus!(0.75)], "l_plus_r.p_key");
 
-        let res = l - r;
+        let res = l.clone() - r.clone();
         assert_eq!(res.cipher, torus!(0.25), "l_minus_r.cipher");
         assert_eq!(res.p_key, [torus!(0.375), torus!(0.75)], "l_minus_r.p_key");
 
-        let res = l * 3;
+        let res = l.clone() * 3;
         assert_eq!(res.cipher, torus!(0.5));
         assert_eq!(res.p_key, [torus!(0.5), torus!(0.75)]);
 
-        let res = l * 0;
+        let res = l.clone() * 0;
         assert_eq!(res.cipher, torus!(0.0));
         assert_eq!(res.p_key, [torus!(0.0), torus!(0.0)]);
     }
@@ -313,7 +306,8 @@ mod tests {
             let test = |item: Binary| {
                 let rep_tlwelv1 = Cryptor::encrypto(TLWE, &s_key_tlwelv1, item);
                 {
-                    let test: Binary = Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1);
+                    let test: Binary =
+                        Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1.clone());
                     assert_eq!(test, item, "Part1.tlweのテスト, item={}", item);
                 }
                 let rep_tlwelv0 = rep_tlwelv1.identity_key_switch(&ks);
@@ -336,7 +330,8 @@ mod tests {
             let test = |item: Binary| {
                 let rep_tlwelv1 = Cryptor::encrypto(TLWE, &s_key_tlwelv1, item);
                 {
-                    let test: Binary = Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1);
+                    let test: Binary =
+                        Cryptor::decrypto(TLWE::<N>, &s_key_tlwelv1, rep_tlwelv1.clone());
                     assert_eq!(test, item, "Part2.tlweのテスト, item={}", item);
                 }
                 let rep_tlwelv0 = rep_tlwelv1.identity_key_switch(&ks);

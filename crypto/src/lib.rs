@@ -17,25 +17,12 @@ pub mod tfhe;
 
 #[cfg(test)]
 mod tests {
-
-    use num::ToPrimitive;
-    use utils::math::Decimal;
-
-    use super::*;
-
     #[test]
-    fn experiment() {
-        let x = 0x8180_0000_u32;
-        println!("{:b}",x);
-        let x_ = x + (1 << (32 - 8 - 1));
-        println!("{:b}",x_);
-        println!("{:b}",x >> (32 -8 -1));
-        let d = Decimal::from_bits(0x8180_0000_u32);
-        println!("{}",d);
-        let x = (d.inner() + (1 << (32 - 8 - 1))) >> (32 - 8);
-        println!("{}",x);
-        let y = d.to_f32().unwrap()*2.0_f32.powi(8);
-        println!("{}",y);
-        println!("{}",d.inner() >> (32 - 8));
+    fn playground() {
+        let x = [0,1,2,3,4,5,6,7,8,9];
+        x.iter().for_each(|f|println!("{}",f));
+
+        x.iter().take(5).for_each(|f|println!("{}",f));
+        x.iter().skip(4).for_each(|f|println!("{}",f));
     }
 }

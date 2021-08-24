@@ -1,3 +1,4 @@
+use num::traits::MulAdd;
 use num::{ToPrimitive, Zero};
 use std::mem::MaybeUninit;
 
@@ -98,8 +99,8 @@ impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
             for i in 0..L {
                 let bg_inv_pow_i = BG_INV.powi(1 + i as i32);
                 let p = item.map(|&x| torus!(x as f32 * bg_inv_pow_i));
-                cipher[i] = cipher[i] + p;
-                p_key[i + L] = p_key[i + L] + p;
+                cipher[i] += &p;
+                p_key[i + L] += &p;
             }
         }
         TRGSWRep::new(cipher, p_key)
@@ -147,7 +148,7 @@ impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRGSW<N> {
         s_key: &Self::SecretKey,
         item: Polynomial<Binary, N>,
     ) -> Self::Representation {
-        Cryptor::encrypto(TRGSW, s_key, item.map(|x| x.to::<i32>()))
+        Cryptor::encrypto(TRGSW, s_key, item.map(|&x| x as i32))
     }
 
     fn decrypto(
@@ -170,8 +171,8 @@ impl<const N: usize> Crypto<i32> for TRGSW<N> {
             const BG_INV: f32 = TRGSWHelper::BG_INV;
             for i in 0..L {
                 let p = torus!(item.to_f32().unwrap() * BG_INV.powi(1 + i as i32));
-                cipher[i] = cipher[i].add_constant(p);
-                p_key[i + L] = p_key[i + L].add_constant(p);
+                cipher[i].add_constant(p);
+                p_key[i + L].add_constant(p);
             }
         }
         TRGSWRep::new(cipher, p_key)
@@ -203,7 +204,7 @@ impl<const N: usize> Crypto<Binary> for TRGSW<N> {
     type Representation = TRGSWRep<N>;
 
     fn encrypto(&self, s_key: &Self::SecretKey, item: Binary) -> Self::Representation {
-        self.encrypto(s_key, item.to_i32().unwrap())
+        self.encrypto(s_key, item as i32)
     }
 
     fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Binary {
@@ -222,21 +223,18 @@ impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRep<N> {
         let a_decomp = rhs.p_key().decomposition::<L>(BGBIT);
         let (b_trgsw, a_trgsw) = self.get_ref();
 
-        let mut cipher = Polynomial::<Torus, N>::zero();
-        let mut p_key = Polynomial::<Torus, N>::zero();
-
         // (cipher,p_key) = C*(b,a) = (b.decomp[0],..,,a.decomp[0],..)*(b_trgsw,a_trgsw)
-        for i in 0..L {
-            let b_b = b_trgsw[i].cross(&b_decomp[i]);
-            let b_a = b_trgsw[i + L].cross(&a_decomp[i]);
-            cipher = cipher + b_b;
-            cipher = cipher + b_a;
+        let cipher = (0..L).fold(Polynomial::<Torus, N>::zero(), |s, i| {
+            let s = b_trgsw[i].mul_add(&b_decomp[i], s);
+            let s = b_trgsw[i + L].mul_add(&a_decomp[i], s);
+            s
+        });
+        let p_key = (0..L).fold(Polynomial::<Torus, N>::zero(), |s, i| {
+            let s = a_trgsw[i].mul_add(&b_decomp[i], s);
+            let s = a_trgsw[i + L].mul_add(&a_decomp[i], s);
+            s
+        });
 
-            let a_b = a_trgsw[i].cross(&b_decomp[i]);
-            let a_a = a_trgsw[i + L].cross(&a_decomp[i]);
-            p_key = p_key + a_b;
-            p_key = p_key + a_a;
-        }
         TRLWERep::new(cipher, p_key)
     }
 }
@@ -246,7 +244,7 @@ impl<const N: usize> TRGSWRep<N> {
     /// let i: Binary;
     /// TRGSW(i).cmux(rep_1,rep_0) = rep_i;
     pub fn cmux(&self, rep_1: TRLWERep<N>, rep_0: TRLWERep<N>) -> TRLWERep<N> {
-        self.cross(&(rep_1 - rep_0)) + rep_0
+        self.cross(&(rep_1 - &rep_0)) + rep_0
     }
 }
 
@@ -371,7 +369,7 @@ mod tests {
 
             let item = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
-            let result = rep_trgsw.cmux(rep_1_trlwe, rep_0_trlwe);
+            let result = rep_trgsw.cmux(rep_1_trlwe.clone(), rep_0_trlwe.clone());
             let text: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, result);
             assert_eq!(
                 pol_1, text,
@@ -402,7 +400,7 @@ mod tests {
 
             let item = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
-            let result = rep_trgsw.cmux(rep_1_trlwe, rep_0_trlwe);
+            let result = rep_trgsw.cmux(rep_1_trlwe.clone(), rep_0_trlwe.clone());
             let text: Polynomial<Binary, N> = Cryptor::decrypto(TRLWE, &s_key, result);
             assert_eq!(
                 pol_1, text,

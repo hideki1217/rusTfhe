@@ -81,34 +81,53 @@ impl<const PRE_N: usize, const N: usize> BootstrappingKey<PRE_N, N> {
 
 #[cfg(test)]
 mod tests {
+    use std::time;
     use utils::math::{BinaryDistribution, Random};
     use utils::timeit;
-    use std::time;
 
+    use super::*;
     use crate::tlwe::{TLWEHelper, TLWE};
     use test::Bencher;
-    use super::*;
 
-    #[test]
-    fn tfhe_hom_nand() {
+    #[bench]
+    #[ignore = "a little late, for about 1 minute"]
+    fn tfhe_hom_nand(_: &mut Bencher) {
         const TLWE_N: usize = TLWEHelper::N;
         const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;
         let mut unif = BinaryDistribution::uniform();
         let s_key_tlwelv0 = unif.gen_n::<TLWE_N>();
         let s_key_tlwelv1 = unif.gen_n::<TRLWE_N>();
 
-        let ksk = timeit!("make ksk",KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0));
-        let bk = timeit!("make bk",BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1)));
+        let ksk = timeit!(
+            "make ksk",
+            KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0)
+        );
+        let bk = timeit!(
+            "make bk",
+            BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1))
+        );
 
         {
             // Nandか確認
             let tlwelv0_1 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
             let tlwelv0_0 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
 
-            let rep_0_0 = timeit!("hom nand 0 0",TFHE::hom_nand(tlwelv0_0(), tlwelv0_0(), &bk, &ksk));
-            let rep_0_1 = timeit!("hom nand 0 1",TFHE::hom_nand(tlwelv0_0(), tlwelv0_1(), &bk, &ksk));
-            let rep_1_0 = timeit!("hom nand 1 0",TFHE::hom_nand(tlwelv0_1(), tlwelv0_0(), &bk, &ksk));
-            let rep_1_1 = timeit!("hom nand 1 1",TFHE::hom_nand(tlwelv0_1(), tlwelv0_1(), &bk, &ksk));
+            let rep_0_0 = timeit!(
+                "hom nand 0 0",
+                TFHE::hom_nand(tlwelv0_0(), tlwelv0_0(), &bk, &ksk)
+            );
+            let rep_0_1 = timeit!(
+                "hom nand 0 1",
+                TFHE::hom_nand(tlwelv0_0(), tlwelv0_1(), &bk, &ksk)
+            );
+            let rep_1_0 = timeit!(
+                "hom nand 1 0",
+                TFHE::hom_nand(tlwelv0_1(), tlwelv0_0(), &bk, &ksk)
+            );
+            let rep_1_1 = timeit!(
+                "hom nand 1 1",
+                TFHE::hom_nand(tlwelv0_1(), tlwelv0_1(), &bk, &ksk)
+            );
 
             let res_0_0: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_0_0);
             let res_0_1: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_0_1);
@@ -127,23 +146,30 @@ mod tests {
         }
     }
 
-    /// <2021/8/24> 
+    /// <2021/8/24> 15,593,340,479 ns/iter (+/- 4,537,182,672)
     #[bench]
-    fn tfhe_hom_nand_bench(bencher:&mut Bencher) {
+    #[ignore = "Too late. for about 1 hour"]
+    fn tfhe_hom_nand_bench(bencher: &mut Bencher) {
         const TLWE_N: usize = TLWEHelper::N;
         const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;
         let mut unif = BinaryDistribution::uniform();
         let s_key_tlwelv0 = unif.gen_n::<TLWE_N>();
         let s_key_tlwelv1 = unif.gen_n::<TRLWE_N>();
 
-        let ksk = timeit!("make ksk",KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0));
-        let bk = timeit!("make bk",BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1)));
+        let ksk = timeit!(
+            "make ksk",
+            KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0)
+        );
+        let bk = timeit!(
+            "make bk",
+            BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1))
+        );
 
         {
             let tlwelv0_1 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
             let tlwelv0_0 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
 
-            bencher.iter(|| TFHE::hom_nand(tlwelv0_1, tlwelv0_0, &bk, &ksk));
+            bencher.iter(|| TFHE::hom_nand(tlwelv0_1.clone(), tlwelv0_0.clone(), &bk, &ksk));
         }
     }
 }
