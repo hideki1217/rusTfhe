@@ -1,19 +1,20 @@
 use std::ops::{Add, Sub};
 
 use array_macro::array;
-use num::traits::MulAdd;
-use num::{ToPrimitive, Zero};
+use num::cast::AsPrimitive;
+
+use num::Zero;
 
 use crate::tlwe::TLWERep;
 
 use super::digest::{Crypto, Encryptable, Encrypted};
-use utils::math::{Binary, Cross, ModDistribution, Polynomial, Random, Torus};
+use utils::math::{Binary, ModDistribution, Polynomial, Random, Torus};
 use utils::{pol, torus};
 
 pub struct TRLWE<const N: usize>;
 macro_rules! trlwe_encryptable {
     ($t:ty) => {
-        impl<const N: usize> Encryptable<TRLWE<N>> for $t {}
+        impl<const N: usize> Encryptable<TRLWE<N>> for $t where [(); N / 2]:  {}
     };
 }
 trlwe_encryptable!(Polynomial<Torus, N>);
@@ -90,7 +91,7 @@ impl TRLWEHelper {
         pol: Polynomial<Torus, M>,
     ) -> Polynomial<Binary, M> {
         let l = array![ i => {
-            let f = pol.coef_(i).to_f32().unwrap();
+            let f:f32 = pol.coef_(i).as_();
             if f < 0.5 {
                 Binary::One
             } else {
@@ -121,7 +122,10 @@ impl<const N: usize> TRLWERep<N> {
         TLWERep::new(b_, a_)
     }
 }
-impl<const N: usize> Crypto<Polynomial<Torus, N>> for TRLWE<N> {
+impl<const N: usize> Crypto<Polynomial<Torus, N>> for TRLWE<N>
+where
+    [(); N / 2]: ,
+{
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRLWERep<N>;
 
@@ -132,18 +136,21 @@ impl<const N: usize> Crypto<Polynomial<Torus, N>> for TRLWE<N> {
         let a = pol!(unif.gen_n::<N>());
         let e = pol!(norm.gen_n::<N>());
 
-        let b = a.mul_add(key, rep + e);
+        let b = a.fft_mul_add(key, rep + e);
 
         TRLWERep::new(b, a)
     }
 
     fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Polynomial<Torus, N> {
         let (cipher, p_key) = rep.get_and_drop();
-        let m_with_e = cipher - p_key.cross(&s_key);
+        let m_with_e = cipher - p_key.fft_cross(&s_key);
         m_with_e
     }
 }
-impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRLWE<N> {
+impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRLWE<N>
+where
+    [(); N / 2]: ,
+{
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRLWERep<N>;
 

@@ -1,15 +1,20 @@
 use array_macro::array;
-use num::{Float, FromPrimitive, Integer, Num, One, ToPrimitive, Unsigned, Zero, traits::{MulAdd, WrappingAdd, WrappingSub}};
+use num::{
+    cast::AsPrimitive,
+    traits::{MulAdd, WrappingAdd, WrappingSub},
+    Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
+};
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use std::{
+    f64::consts::PI,
     fmt::Display,
     mem::MaybeUninit,
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 
 use crate::mem;
-use rustfft::{FftPlanner, num_complex::Complex};
+use rustfft::{num_complex::Complex, FftPlanner};
 
 //Macro
 #[macro_export]
@@ -60,7 +65,8 @@ impl<T: Copy, const N: usize> Polynomial<T, N> {
 }
 impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
     /// # Expamle
-    /// ```ignore
+    /// ```
+    /// use utils::{pol,math::Polynomial};
     /// assert_eq!(pol!([1,2,3]).rotate(1),pol!([-3,1,2]));
     /// assert_eq!(pol!([1,2,3]).rotate(-1),pol!([2,3,-1]));
     /// assert_eq!(pol!([1,2,3]).rotate(3),pol!([-1,-2,-3]));
@@ -186,9 +192,6 @@ impl<S: Copy, T: Sub<Output = T> + Copy + Zero + MulAdd<S, Output = T>, const N:
 {
     type Output = Self;
     fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
-        let mut fft = FftPlanner::<f32>::new();
-        fft.plan_fft_forward(N);
-        let mut buffer = array![ i => Complex::from_f32(self.coef_(i)) ; N];
         // TODO: FFTにするとO(nlog(n))、今はn^2
         let mut arr: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
         for (sum, arr_i) in arr.iter_mut().enumerate() {
@@ -215,6 +218,75 @@ impl<T, const N: usize> Polynomial<T, N> {
         self.0.iter_mut()
     }
 }
+
+impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
+    /// # Panic
+    /// - 'self.len() % 2 > 0'
+    pub fn fft_cross<S: AsPrimitive<f64>>(&self, rhs: &Polynomial<S, N>) -> Self
+    where
+        [(); N / 2]: ,
+    {
+        let n: f64 = N as f64;
+        let mut planner = FftPlanner::<f64>::new();
+        let fft = planner.plan_fft_forward(N / 2);
+        // ある数列との要素積したものを用意
+        let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
+        fft.process(&mut l_buffer);
+        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).as_(), rhs.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
+        fft.process(&mut r_buffer);
+        // 要素積
+        l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
+        let fft_inv = planner.plan_fft_inverse(N / 2);
+        // 逆FFTで畳み込みに変換
+        fft_inv.process(&mut l_buffer);
+        // 要素積の分補正
+        l_buffer
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, z)| *z *= Complex::from_polar(1.0, -PI * (i as f64) / n) * 2.0 / n);
+        pol!(
+            array![ i => if i < N/2 { T::from(l_buffer[i].re) } else { T::from(l_buffer[i-N/2].im) } ;N]
+        )
+    }
+
+    pub fn fft_mul_add<S: AsPrimitive<f64>>(
+        &self,
+        rhs: &Polynomial<S, N>,
+        mut s: Polynomial<T, N>,
+    ) -> Self
+    where
+        T: Add<Output = T>,
+        [(); N / 2]: ,
+    {
+        let n: f64 = N as f64;
+        let mut planner = FftPlanner::<f64>::new();
+        let fft = planner.plan_fft_forward(N / 2);
+        // ある数列との要素積したものを用意
+        let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
+        fft.process(&mut l_buffer);
+        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).as_(), rhs.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
+        fft.process(&mut r_buffer);
+        // 要素積
+        l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
+        let fft_inv = planner.plan_fft_inverse(N / 2);
+        // 逆FFTで畳み込みに変換
+        fft_inv.process(&mut l_buffer);
+        // 要素積の分補正
+        l_buffer
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, z)| *z *= Complex::from_polar(1.0, -PI * (i as f64) / n) * 2.0 / n);
+        s.iter_mut().enumerate().for_each(|(i, s_)| {
+            *s_ = *s_
+                + if i < N / 2 {
+                    T::from(l_buffer[i].re)
+                } else {
+                    T::from(l_buffer[i - N / 2].im)
+                }
+        });
+        s
+    }
+}
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
     pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
         let res: [[i32; L]; N] = array![ i => {
@@ -237,6 +309,14 @@ impl<T: Zero + PartialEq> From<T> for Binary {
             Binary::Zero
         } else {
             Binary::One
+        }
+    }
+}
+impl<T: 'static + Copy + Zero + One> AsPrimitive<T> for Binary {
+    fn as_(self) -> T {
+        match self {
+            Binary::One => T::one(),
+            Binary::Zero => T::zero(),
         }
     }
 }
@@ -318,7 +398,6 @@ impl BinaryDistribution<Uniform<i32>, ThreadRng> {
 */
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Decimal<U: Unsigned>(U);
-pub type Torus = Decimal<u32>;
 impl<U: Unsigned> Decimal<U> {
     pub fn from_bits(u: U) -> Self {
         Decimal(u)
@@ -330,6 +409,44 @@ impl<U: Unsigned + Copy> Decimal<U> {
         self.0
     }
 }
+impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Decimal(self.0.wrapping_add(&rhs.0))
+    }
+}
+impl<U: Unsigned + WrappingAdd> AddAssign for Decimal<U> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 = self.0.wrapping_add(&rhs.0);
+    }
+}
+impl<U: Unsigned + WrappingSub> Sub for Decimal<U> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Decimal(self.0.wrapping_sub(&rhs.0))
+    }
+}
+impl<U: Unsigned + WrappingSub> SubAssign for Decimal<U> {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 = self.0.wrapping_sub(&rhs.0);
+    }
+}
+impl<U: Unsigned + WrappingSub> Neg for Decimal<U> {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Decimal(U::zero().wrapping_sub(&self.0))
+    }
+}
+impl<U: Unsigned + Zero + WrappingAdd> Zero for Decimal<U> {
+    fn zero() -> Self {
+        Decimal(U::zero())
+    }
+    fn is_zero(&self) -> bool {
+        U::is_zero(&self.0)
+    }
+}
+// 以下 Torus
+pub type Torus = Decimal<u32>;
 impl Decimal<u32> {
     /// 2進表現から2^bits進表現に変換
     /// - res\[i\] in [-bg/2,bg/2) where bg = 2^bits
@@ -378,37 +495,9 @@ impl Decimal<u32> {
     }
 
     pub fn is_in(&self, p: Self, acc: f32) -> bool {
-        let x = self.to_f32().unwrap();
-        let p = p.to_f32().unwrap();
+        let x: f32 = self.as_();
+        let p: f32 = p.as_();
         (x - p).abs() < acc
-    }
-}
-impl<U: Unsigned + WrappingAdd> Add for Decimal<U> {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
-        Decimal(self.0.wrapping_add(&rhs.0))
-    }
-}
-impl<U: Unsigned + WrappingAdd> AddAssign for Decimal<U> {
-    fn add_assign(&mut self, rhs: Self) {
-        self.0 = self.0.wrapping_add(&rhs.0);
-    }
-}
-impl<U: Unsigned + WrappingSub> Sub for Decimal<U> {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        Decimal(self.0.wrapping_sub(&rhs.0))
-    }
-}
-impl<U: Unsigned + WrappingSub> SubAssign for Decimal<U> {
-    fn sub_assign(&mut self, rhs: Self) {
-        self.0 = self.0.wrapping_sub(&rhs.0);
-    }
-}
-impl<U: Unsigned + WrappingSub> Neg for Decimal<U> {
-    type Output = Self;
-    fn neg(self) -> Self::Output {
-        Decimal(U::zero().wrapping_sub(&self.0))
     }
 }
 impl Mul<u32> for Decimal<u32> {
@@ -442,56 +531,23 @@ where
         self * a + b
     }
 }
-impl ToPrimitive for Decimal<u32> {
-    fn to_i64(&self) -> Option<i64> {
-        Some(0)
+impl AsPrimitive<f64> for Decimal<u32> {
+    fn as_(self) -> f64 {
+        let mut u = self.0;
+        let f = (1..=32)
+            .map(|i| (0.5).powi(i as i32))
+            .rev()
+            .filter(|_| {
+                let flag = if u & 1 > 0 { true } else { false };
+                u >>= 1;
+                flag
+            })
+            .fold(f64::neg_zero(), |s, x| s + x);
+        f
     }
-
-    fn to_u64(&self) -> Option<u64> {
-        Some(0)
-    }
-
-    fn to_isize(&self) -> Option<isize> {
-        Some(0)
-    }
-
-    fn to_i8(&self) -> Option<i8> {
-        Some(0)
-    }
-
-    fn to_i16(&self) -> Option<i16> {
-        Some(0)
-    }
-
-    fn to_i32(&self) -> Option<i32> {
-        Some(0)
-    }
-
-    fn to_i128(&self) -> Option<i128> {
-        Some(0)
-    }
-
-    fn to_usize(&self) -> Option<usize> {
-        Some(0)
-    }
-
-    fn to_u8(&self) -> Option<u8> {
-        Some(0)
-    }
-
-    fn to_u16(&self) -> Option<u16> {
-        Some(0)
-    }
-
-    fn to_u32(&self) -> Option<u32> {
-        Some(0)
-    }
-
-    fn to_u128(&self) -> Option<u128> {
-        Some(0)
-    }
-
-    fn to_f32(&self) -> Option<f32> {
+}
+impl AsPrimitive<f32> for Decimal<u32> {
+    fn as_(self) -> f32 {
         let n = f32::MANTISSA_DIGITS;
         let mut u = self.0;
         u >>= 32 - n;
@@ -504,22 +560,7 @@ impl ToPrimitive for Decimal<u32> {
                 flag
             })
             .fold(f32::neg_zero(), |s, x| s + x);
-        Some(f)
-    }
-    fn to_f64(&self) -> Option<f64> {
-        match self.to_f32() {
-            Some(f) => Some(f as f64),
-            None => None,
-        }
-    }
-}
-impl Zero for Decimal<u32> {
-    fn zero() -> Self {
-        Decimal(u32::zero())
-    }
-
-    fn is_zero(&self) -> bool {
-        u32::is_zero(&self.0)
+        f
     }
 }
 impl From<f32> for Decimal<u32> {
@@ -553,7 +594,8 @@ impl From<f64> for Decimal<u32> {
 }
 impl Display for Decimal<u32> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_f32().unwrap().fmt(f)
+        let v: f64 = self.as_();
+        v.fmt(f)
     }
 }
 
@@ -750,6 +792,70 @@ mod tests {
         assert_eq!(pol.rotate(-3), pol!([4, 5, -1, -2, -3]));
         assert_eq!(pol.rotate(10), pol);
     }
+    #[test]
+    fn polynomial_fft_cross() {
+        let acc = 1e-12;
+
+        let l = pol!([1.0_f64, 3.0]);
+        let r = pol!([2.0_f64, 3.0]);
+        let expect = pol!([-7.0, 9.0]);
+        let res = l.fft_cross(&r);
+        pol_range_eq(&res, &expect, acc);
+
+        let l = pol!([1.0_f64; 6]);
+        let r = pol!([4.0_f64; 6]);
+        let expect = l.cross(&r);
+        let res = l.fft_cross(&r);
+        pol_range_eq(&res, &expect, acc);
+
+        let l = pol!([torus!(0.5), torus!(0.25)]);
+        let r = pol!([3, 2]);
+        let expect = l.cross(&r);
+        let res = l.fft_cross(&r);
+        assert!(torus_range_eq(res.coef_(0), expect.coef_(0), 1e-6));
+        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));
+
+        let l = pol!([torus!(0.5), torus!(0.25)]);
+        let r = pol!([Binary::Zero, Binary::One]);
+        let expect = l.cross(&r);
+        let res = l.fft_cross(&r);
+        assert!(torus_range_eq(res.coef_(0), expect.coef_(0), 1e-6));
+        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));
+    }
+    #[test]
+    fn polynomial_fft_mul_add() {
+        let acc = 1e-12;
+
+        let l = pol!([1.0_f64, 3.0]);
+        let r = pol!([2.0_f64, 3.0]);
+        let s = pol!([1.0_f64, 1.0]);
+        let expect = pol!([-6.0, 10.0]);
+        let res = l.fft_mul_add(&r, s);
+        pol_range_eq(&res, &expect, acc);
+
+        let l = pol!([1.0_f64; 6]);
+        let r = pol!([4.0_f64; 6]);
+        let s = pol!([1.0_f64; 6]);
+        let expect = l.mul_add(&r, s.clone());
+        let res = l.fft_mul_add(&r, s);
+        pol_range_eq(&res, &expect, acc);
+
+        let l = pol!([torus!(0.5), torus!(0.25)]);
+        let r = pol!([3, 2]);
+        let s = pol!([torus!(0.125), torus!(0.125)]);
+        let expect = l.mul_add(&r, s);
+        let res = l.fft_mul_add(&r, s);
+        assert!(torus_range_eq(res.coef_(0), expect.coef_(0), 1e-6));
+        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));
+
+        let l = pol!([torus!(0.5), torus!(0.25)]);
+        let r = pol!([Binary::Zero, Binary::One]);
+        let s = pol!([torus!(0.125), torus!(0.125)]);
+        let expect = l.mul_add(&r, s);
+        let res = l.fft_mul_add(&r, s);
+        assert!(torus_range_eq(res.coef_(0), expect.coef_(0), 1e-6));
+        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));
+    }
 
     #[test]
     fn mod_guassian_run() {
@@ -800,12 +906,8 @@ mod tests {
     #[test]
     fn decimal_to_f32() {
         let test = |f: f32, g: f32| {
-            let res = torus!(f);
-            assert!(
-                (res.to_f32().unwrap() - g).abs() < f32::EPSILON,
-                "test for {}",
-                f
-            );
+            let res: f32 = torus!(f).as_();
+            assert!((res - g).abs() < f32::EPSILON, "test for {}", f);
         };
 
         test(0.5, 0.5);
@@ -1042,8 +1144,16 @@ mod tests {
         assert_eq!(res, [-32, -31, -32], "test5: 繰り上がりも桁上がりもある");
     }
 
+    #[bench]
+    fn bench_decimal_to_f32(b: &mut test::Bencher) {
+        let x = Decimal(0x8000_0000_u32);
+        b.iter(|| {
+            let _: f32 = x.as_();
+        });
+    }
+
     #[allow(dead_code)]
-    fn range_eq<T: Num + PartialOrd>(result: T, expect: T, acc: T) -> bool {
+    fn range_eq<T: Sub<Output = T> + PartialOrd>(result: T, expect: T, acc: T) -> bool {
         let diff: T = if result > expect {
             result - expect
         } else {
@@ -1052,8 +1162,21 @@ mod tests {
         acc > diff
     }
     fn torus_range_eq(result: Torus, expect: Torus, acc: f32) -> bool {
-        let result = result.to_f32().unwrap();
-        let expect = expect.to_f32().unwrap();
+        let result: f32 = result.as_();
+        let expect: f32 = expect.as_();
         (result - expect).abs().min((result + expect - 1.0).abs()) < acc
+    }
+    fn pol_range_eq<T, const N: usize>(result: &Polynomial<T, N>, expect: &Polynomial<T, N>, acc: T)
+    where
+        T: PartialOrd + Sub<Output = T> + Copy + std::fmt::Debug,
+    {
+        for i in 0..N {
+            assert!(
+                range_eq(result.coef_(i), expect.coef_(i), acc),
+                "result={:?}, respect={:?}",
+                result,
+                expect
+            );
+        }
     }
 }

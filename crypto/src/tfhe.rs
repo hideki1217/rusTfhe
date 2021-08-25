@@ -20,7 +20,10 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         input_1: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
         ks: &KeySwitchingKey<TRLWE_N, TLWE_N>,
-    ) -> TLWERep<TLWE_N> {
+    ) -> TLWERep<TLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
         let tlwelv0 = // 1 1 => < 0, other => > 0
             TLWERep::trivial_one(torus!(TFHEHelper::COEF)) - (input_0 + input_1);
         let tlwelv1 = Self::gate_bootstrapping_tlwe2tlwe(tlwelv0, bk);
@@ -29,7 +32,10 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
     fn gate_bootstrapping_tlwe2tlwe(
         rep_tlwe: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
-    ) -> TLWERep<TRLWE_N> {
+    ) -> TLWERep<TRLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
         let testvec = TRLWERep::trivial_one(pol!([torus!(TFHEHelper::COEF); TRLWE_N]));
         let trlwe = TFHE::blind_rotate(rep_tlwe, bk, testvec);
         trlwe.sample_extract_index(0)
@@ -38,7 +44,10 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         rep_tlwe: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
         base: TRLWERep<TRLWE_N>,
-    ) -> TRLWERep<TRLWE_N> {
+    ) -> TRLWERep<TRLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
         const NBIT: u32 = TFHEHelper::NBIT;
         const BITS: u32 = u32::BITS;
         let (b, a) = rep_tlwe.get_and_drop();
@@ -62,7 +71,10 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
 pub struct BootstrappingKey<const PRE_N: usize, const N: usize>(Vec<TRGSWRep<N>>);
 
 impl<const PRE_N: usize, const N: usize> BootstrappingKey<PRE_N, N> {
-    pub fn new(s_key_tlwe: [Binary; PRE_N], s_key: &Polynomial<Binary, N>) -> Self {
+    pub fn new(s_key_tlwe: [Binary; PRE_N], s_key: &Polynomial<Binary, N>) -> Self
+    where
+        [(); N / 2]: ,
+    {
         let mut vec = Vec::<TRGSWRep<N>>::with_capacity(PRE_N);
         for s_i in s_key_tlwe {
             vec.push(Cryptor::encrypto(TRGSW, s_key, s_i));
@@ -147,8 +159,9 @@ mod tests {
     }
 
     /// <2021/8/24> 15,593,340,479 ns/iter (+/- 4,537,182,672)
+    /// <2021/8/25>  1,698,811,866 ns/iter (+/- 192,033,341) // FFT導入
     #[bench]
-    #[ignore = "Too late. for about 1 hour"]
+    //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {
         const TLWE_N: usize = TLWEHelper::N;
         const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;

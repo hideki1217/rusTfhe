@@ -1,19 +1,23 @@
+#![feature(const_generics)]
+#![feature(const_evaluatable_checked)]
+#![feature(test)]
+extern crate test;
 extern crate rustfft;
+extern crate lazy_static;
 
 pub mod macros;
 pub mod math;
 pub mod mem;
 
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use math::Binary;
+    use num::cast::AsPrimitive;
+    
     #[test]
     fn playground() {
-        let x = Binary::One;
-        println!("{}", std::mem::size_of_val(&x));
-        let y = Binary::Zero;
-        let z = x as u8 + y as u8;
-        println!("{}", z);
+        let b = super::math::Binary::One;
+        let f:f64 = b.as_(); 
+        println!("{}",f);
     }
 }

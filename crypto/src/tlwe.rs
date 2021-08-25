@@ -1,6 +1,7 @@
 use super::digest::{Crypto, Encryptable, Encrypted};
 use crate::digest::Cryptor;
-use num::{ToPrimitive, Zero};
+use num::cast::AsPrimitive;
+use num::Zero;
 use std::ops::{Add, Mul, Sub};
 use utils::math::{Binary, ModDistribution, Random, Torus};
 use utils::torus;
@@ -139,7 +140,7 @@ impl TLWEHelper {
         })
     }
     pub fn torus2binary(torus: Torus) -> Binary {
-        let f = torus.to_f32().unwrap();
+        let f:f32 = torus.as_();
         if f < 0.5 {
             Binary::One
         } else {
