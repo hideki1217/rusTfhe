@@ -102,7 +102,7 @@ mod tests {
     use test::Bencher;
 
     #[bench]
-    #[ignore = "a little late, for about 1 minute"]
+    //#[ignore = "a little late, for about 1 minute"]
     fn tfhe_hom_nand(_: &mut Bencher) {
         const TLWE_N: usize = TLWEHelper::N;
         const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;
@@ -160,6 +160,7 @@ mod tests {
 
     /// <2021/8/24> 15,593,340,479 ns/iter (+/- 4,537,182,672)
     /// <2021/8/25>  1,698,811,866 ns/iter (+/- 192,033,341) // FFT導入
+    /// <2021/8/25>  1,643,367,136 ns/iter (+/- 686,612,125) // FFT_MAPを導入
     #[bench]
     //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {

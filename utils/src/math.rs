@@ -6,15 +6,19 @@ use num::{
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
+use std::sync::RwLock;
 use std::{
+    collections::HashMap,
     f64::consts::PI,
     fmt::Display,
     mem::MaybeUninit,
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
+    sync::Arc,
 };
 
 use crate::mem;
-use rustfft::{num_complex::Complex, FftPlanner};
+use lazy_static::lazy_static;
+use rustfft::{Fft, FftNum, FftPlanner, num_complex::Complex};
 
 //Macro
 #[macro_export]
@@ -218,7 +222,6 @@ impl<T, const N: usize> Polynomial<T, N> {
         self.0.iter_mut()
     }
 }
-
 impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
     /// # Panic
     /// - 'self.len() % 2 > 0'
@@ -227,8 +230,8 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         [(); N / 2]: ,
     {
         let n: f64 = N as f64;
-        let mut planner = FftPlanner::<f64>::new();
-        let fft = planner.plan_fft_forward(N / 2);
+        let mut fft_map = FFT_MAP.write().map_err(|_|"FFT_MAPが読み出しミス").unwrap();
+        let fft = fft_map.get_fft_forward(N/2);
         // ある数列との要素積したものを用意
         let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
         fft.process(&mut l_buffer);
@@ -236,7 +239,7 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         fft.process(&mut r_buffer);
         // 要素積
         l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
-        let fft_inv = planner.plan_fft_inverse(N / 2);
+        let fft_inv = fft_map.get_fft_inverse(N/2);
         // 逆FFTで畳み込みに変換
         fft_inv.process(&mut l_buffer);
         // 要素積の分補正
@@ -259,8 +262,8 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         [(); N / 2]: ,
     {
         let n: f64 = N as f64;
-        let mut planner = FftPlanner::<f64>::new();
-        let fft = planner.plan_fft_forward(N / 2);
+        let mut fft_map = FFT_MAP.write().map_err(|_|"FFT_MAPが読み出しミス").unwrap();
+        let fft = fft_map.get_fft_forward(N/2);
         // ある数列との要素積したものを用意
         let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
         fft.process(&mut l_buffer);
@@ -268,7 +271,7 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         fft.process(&mut r_buffer);
         // 要素積
         l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
-        let fft_inv = planner.plan_fft_inverse(N / 2);
+        let fft_inv = fft_map.get_fft_inverse(N/2);
         // 逆FFTで畳み込みに変換
         fft_inv.process(&mut l_buffer);
         // 要素積の分補正
@@ -285,6 +288,44 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
                 }
         });
         s
+    }
+}
+lazy_static!{
+    static ref FFT_MAP:RwLock<FftMap<f64>> = RwLock::new(FftMap::new());
+}
+struct FftMap<T:FftNum> {
+    planner: FftPlanner<T>,
+    map_f: HashMap<usize, Arc<dyn Fft<T>>>,// for forward
+    map_i: HashMap<usize, Arc<dyn Fft<T>>>,// for inverse
+}
+unsafe impl<T:FftNum> Sync for FftMap<T> {} // FftMapはpanicしないはずで整合性が壊れることはない
+impl<T:FftNum> FftMap<T> {
+    fn new() -> Self {
+        FftMap {
+            planner: FftPlanner::new(),
+            map_f: HashMap::new(),
+            map_i: HashMap::new(),
+        }
+    }
+    fn get_fft_forward(&mut self, n: usize) -> Arc<dyn Fft<T>> {
+        match self.map_f.get(&n) {
+            Option::Some(fft) => fft.clone(),
+            Option::None => {
+                let fft_f = self.planner.plan_fft_forward(n);
+                self.map_f.insert(n, fft_f.clone());
+                fft_f
+            }
+        }
+    }
+    fn get_fft_inverse(&mut self, n: usize) -> Arc<dyn Fft<T>> {
+        match self.map_i.get(&n) {
+            Option::Some(fft) => fft.clone(),
+            Option::None => {
+                let fft_i = self.planner.plan_fft_inverse(n);
+                self.map_i.insert(n, fft_i.clone());
+                fft_i
+            }
+        }
     }
 }
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
@@ -589,7 +630,20 @@ impl From<f32> for Decimal<u32> {
 }
 impl From<f64> for Decimal<u32> {
     fn from(val: f64) -> Self {
-        Decimal::from(val.to_f32().unwrap())
+        let mut x: u32 = 0;
+        {
+            let mut val = (val - val.floor()).fract();
+            for (i,l) in (1..32).map(|i|(i,(0.5).powi(i))) {
+                x += if val >= l {
+                    val -= l;
+                    1
+                } else {
+                    0
+                };
+                x <<= 1
+            }
+        }
+        Decimal(x)
     }
 }
 impl Display for Decimal<u32> {
@@ -893,6 +947,19 @@ mod tests {
     #[test]
     fn decimal_from_f32() {
         let test = |f: f32, respect: u32| {
+            let Decimal(res) = torus!(f);
+            assert_eq!(res, respect, "test for {}", f);
+        };
+
+        test(0.5, 1 << (u32::BITS - 1));
+        test(0.25, 1 << (u32::BITS - 2));
+        test(0.125, 1 << (u32::BITS - 3));
+        test(-0.5, 1 << (u32::BITS - 1));
+        test(-0.25, (1 << (u32::BITS - 2)) + (1 << (u32::BITS - 1)));
+    }
+    #[test]
+    fn decimal_from_f64() {
+        let test = |f: f64, respect: u32| {
             let Decimal(res) = torus!(f);
             assert_eq!(res, respect, "test for {}", f);
         };
