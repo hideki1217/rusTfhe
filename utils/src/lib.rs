@@ -12,12 +12,12 @@ pub mod mem;
 
 #[cfg(test)]
 mod tests {
-    use num::cast::AsPrimitive;
+    
     
     #[test]
     fn playground() {
         let b = super::math::Binary::One;
-        let f:f64 = b.as_(); 
+        let f:f64 = b.into(); 
         println!("{}",f);
     }
 }

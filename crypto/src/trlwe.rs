@@ -1,15 +1,9 @@
 use std::ops::{Add, Sub};
-
 use array_macro::array;
-use num::cast::AsPrimitive;
-
 use num::Zero;
-
 use crate::tlwe::TLWERep;
-
 use super::digest::{Crypto, Encryptable, Encrypted};
-use utils::math::{Binary, ModDistribution, Polynomial, Random, Torus};
-use utils::{pol, torus};
+use utils::{math::{Binary, ModDistribution, Polynomial, Random, Torus}, pol, torus};
 
 pub struct TRLWE<const N: usize>;
 macro_rules! trlwe_encryptable {
@@ -91,7 +85,7 @@ impl TRLWEHelper {
         pol: Polynomial<Torus, M>,
     ) -> Polynomial<Binary, M> {
         let l = array![ i => {
-            let f:f32 = pol.coef_(i).as_();
+            let f:f32 = pol.coef_(i).into();
             if f < 0.5 {
                 Binary::One
             } else {

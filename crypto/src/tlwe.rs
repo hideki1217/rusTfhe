@@ -1,10 +1,7 @@
-use super::digest::{Crypto, Encryptable, Encrypted};
-use crate::digest::Cryptor;
-use num::cast::AsPrimitive;
+use super::digest::{Crypto, Encryptable, Encrypted, Cryptor};
 use num::Zero;
 use std::ops::{Add, Mul, Sub};
-use utils::math::{Binary, ModDistribution, Random, Torus};
-use utils::torus;
+use utils::{math::{Binary, ModDistribution, Random, Torus}, torus};
 
 pub struct TLWE<const N: usize>;
 macro_rules! tlwe_encryptable {
@@ -140,7 +137,7 @@ impl TLWEHelper {
         })
     }
     pub fn torus2binary(torus: Torus) -> Binary {
-        let f:f32 = torus.as_();
+        let f:f32 = torus.into();
         if f < 0.5 {
             Binary::One
         } else {

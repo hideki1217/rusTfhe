@@ -1,4 +1,3 @@
-use num::cast::AsPrimitive;
 use num::{ToPrimitive, Zero};
 use std::mem::MaybeUninit;
 
@@ -120,7 +119,7 @@ where
         let (b, a) = rep.get_and_drop();
         let res: Polynomial<Torus, N> = Cryptor::decrypto(TRLWE, s_key, TRLWERep::new(b[I], a[I]));
         res.map(|d| {
-            let d: f32 = d.as_();
+            let d: f32 = d.into();
             let res = (d * (TRGSWHelper::BG as f32)).round().to_i32().unwrap();
             if res > FALF_BG {
                 res - BG
@@ -200,7 +199,7 @@ where
         let rep = TRLWERep::new(b[I], a[I]).sample_extract_index(0);
         let res: Torus = Cryptor::decrypto(TLWE, s_key.coefficient(), rep);
         // 丸める
-        let res: f32 = res.as_();
+        let res: f32 = res.into();
         let res = (res * (TRGSWHelper::BG as f32)).round().to_i32().unwrap();
 
         if res > FALF_BG {
