@@ -18,7 +18,7 @@ use std::{
 
 use crate::mem;
 use lazy_static::lazy_static;
-use rustfft::{Fft, FftNum, FftPlanner, num_complex::Complex};
+use rustfft::{num_complex::Complex, Fft, FftNum, FftPlanner};
 
 //Macro
 #[macro_export]
@@ -230,23 +230,26 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         [(); N / 2]: ,
     {
         let n: f64 = N as f64;
-        let mut fft_map = FFT_MAP.write().map_err(|_|"FFT_MAPが読み出しミス").unwrap();
-        let fft = fft_map.get_fft_forward(N/2);
+        let mut fft_map = FFT_MAP
+            .write()
+            .map_err(|_| "FFT_MAPが読み出しミス")
+            .unwrap();
+        let polfft = fft_map.get_fft_forward(N / 2);
         // ある数列との要素積したものを用意
-        let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
-        fft.process(&mut l_buffer);
-        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).as_(), rhs.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
-        fft.process(&mut r_buffer);
+        let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * polfft.memo[i];N/2];
+        polfft.fft.process(&mut l_buffer);
+        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).as_(), rhs.coef_(i+N/2).as_()) * polfft.memo[i];N/2];
+        polfft.fft.process(&mut r_buffer);
         // 要素積
         l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
-        let fft_inv = fft_map.get_fft_inverse(N/2);
+        let polifft = fft_map.get_fft_inverse(N / 2);
         // 逆FFTで畳み込みに変換
-        fft_inv.process(&mut l_buffer);
+        polifft.fft.process(&mut l_buffer);
         // 要素積の分補正
         l_buffer
             .iter_mut()
-            .enumerate()
-            .for_each(|(i, z)| *z *= Complex::from_polar(1.0, -PI * (i as f64) / n) * 2.0 / n);
+            .zip(polifft.memo.iter())
+            .for_each(|(z, e_i)| *z *= e_i * 2.0 / n);
         pol!(
             array![ i => if i < N/2 { T::from(l_buffer[i].re) } else { T::from(l_buffer[i-N/2].im) } ;N]
         )
@@ -262,23 +265,26 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         [(); N / 2]: ,
     {
         let n: f64 = N as f64;
-        let mut fft_map = FFT_MAP.write().map_err(|_|"FFT_MAPが読み出しミス").unwrap();
-        let fft = fft_map.get_fft_forward(N/2);
+        let mut fft_map = FFT_MAP
+            .write()
+            .map_err(|_| "FFT_MAPが読み出しミス")
+            .unwrap();
+        let polfft = fft_map.get_fft_forward(N / 2);
         // ある数列との要素積したものを用意
-        let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
-        fft.process(&mut l_buffer);
-        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).as_(), rhs.coef_(i+N/2).as_()) * Complex::from_polar(1.0,PI*(i as f64)/n);N/2];
-        fft.process(&mut r_buffer);
+        let mut l_buffer = array![i => Complex::new(self.coef_(i).as_(),self.coef_(i+N/2).as_()) * polfft.memo[i];N/2];
+        polfft.fft.process(&mut l_buffer);
+        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).as_(), rhs.coef_(i+N/2).as_()) * polfft.memo[i];N/2];
+        polfft.fft.process(&mut r_buffer);
         // 要素積
         l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
-        let fft_inv = fft_map.get_fft_inverse(N/2);
+        let polifft = fft_map.get_fft_inverse(N / 2);
         // 逆FFTで畳み込みに変換
-        fft_inv.process(&mut l_buffer);
+        polifft.fft.process(&mut l_buffer);
         // 要素積の分補正
         l_buffer
             .iter_mut()
             .enumerate()
-            .for_each(|(i, z)| *z *= Complex::from_polar(1.0, -PI * (i as f64) / n) * 2.0 / n);
+            .for_each(|(i, z)| *z *= polifft.memo[i] * 2.0 / n);
         s.iter_mut().enumerate().for_each(|(i, s_)| {
             *s_ = *s_
                 + if i < N / 2 {
@@ -290,16 +296,16 @@ impl<T: AsPrimitive<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         s
     }
 }
-lazy_static!{
-    static ref FFT_MAP:RwLock<FftMap<f64>> = RwLock::new(FftMap::new());
+lazy_static! {
+    static ref FFT_MAP: RwLock<FftMap<f64>> = RwLock::new(FftMap::new());
 }
-struct FftMap<T:FftNum> {
+struct FftMap<T: FftNum> {
     planner: FftPlanner<T>,
-    map_f: HashMap<usize, Arc<dyn Fft<T>>>,// for forward
-    map_i: HashMap<usize, Arc<dyn Fft<T>>>,// for inverse
+    map_f: HashMap<usize, Arc<PolFft<T>>>, // for forward
+    map_i: HashMap<usize, Arc<PolFft<T>>>, // for inverse
 }
-unsafe impl<T:FftNum> Sync for FftMap<T> {} // FftMapはpanicしないはずで整合性が壊れることはない
-impl<T:FftNum> FftMap<T> {
+unsafe impl<T: FftNum> Sync for FftMap<T> {} // FftMapはpanicしないはずで整合性が壊れることはない
+impl<T: FftNum + Float> FftMap<T> {
     fn new() -> Self {
         FftMap {
             planner: FftPlanner::new(),
@@ -307,25 +313,54 @@ impl<T:FftNum> FftMap<T> {
             map_i: HashMap::new(),
         }
     }
-    fn get_fft_forward(&mut self, n: usize) -> Arc<dyn Fft<T>> {
-        match self.map_f.get(&n) {
-            Option::Some(fft) => fft.clone(),
+    fn get_fft_forward(&mut self, n: usize) -> Arc<PolFft<T>> {
+        let item = self.map_f.get(&n);
+        match item {
+            Option::Some(polfft) => polfft.clone(),
             Option::None => {
                 let fft_f = self.planner.plan_fft_forward(n);
-                self.map_f.insert(n, fft_f.clone());
-                fft_f
+                let polfft = Arc::new(PolFft::new_forward(fft_f, n));
+                self.map_f.insert(n, polfft.clone());
+                polfft
             }
         }
     }
-    fn get_fft_inverse(&mut self, n: usize) -> Arc<dyn Fft<T>> {
+    fn get_fft_inverse(&mut self, n: usize) -> Arc<PolFft<T>> {
         match self.map_i.get(&n) {
-            Option::Some(fft) => fft.clone(),
+            Option::Some(polfft) => polfft.clone(),
             Option::None => {
                 let fft_i = self.planner.plan_fft_inverse(n);
-                self.map_i.insert(n, fft_i.clone());
-                fft_i
+                let polfft = Arc::new(PolFft::new_inverse(fft_i, n));
+                self.map_i.insert(n, polfft.clone());
+                polfft
             }
         }
+    }
+}
+struct PolFft<T: FftNum> {
+    pub fft: Arc<dyn Fft<T>>,
+    pub memo: Vec<Complex<T>>,
+}
+impl<T: FftNum + Float> PolFft<T> {
+    pub fn new_inverse(fft: Arc<dyn Fft<T>>, n: usize) -> Self {
+        let mut memo = Vec::with_capacity(n);
+        for i in 0..n {
+            memo.push(Complex::from_polar(
+                T::one(),
+                -T::from_f64(PI).unwrap() * (T::from_usize(i).unwrap()) / T::from_usize(2*n).unwrap(),
+            ));
+        }
+        PolFft { fft, memo }
+    }
+    pub fn new_forward(fft: Arc<dyn Fft<T>>, n: usize) -> Self {
+        let mut memo = Vec::with_capacity(n);
+        for i in 0..n {
+            memo.push(Complex::from_polar(
+                T::one(),
+                T::from_f64(PI).unwrap() * (T::from_usize(i).unwrap()) / T::from_usize(2*n).unwrap(),
+            ));
+        }
+        PolFft { fft, memo }
     }
 }
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
@@ -633,7 +668,7 @@ impl From<f64> for Decimal<u32> {
         let mut x: u32 = 0;
         {
             let mut val = (val - val.floor()).fract();
-            for (i,l) in (1..32).map(|i|(i,(0.5).powi(i))) {
+            for l in (1..32).map(|i| (0.5).powi(i)) {
                 x += if val >= l {
                     val -= l;
                     1
