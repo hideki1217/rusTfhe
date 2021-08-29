@@ -1,8 +1,6 @@
 use num::{ToPrimitive, Zero};
 use std::mem::MaybeUninit;
-
 use crate::trlwe::TRLWERep;
-
 use super::digest::{Crypto, Cryptor, Encryptable, Encrypted};
 use super::tlwe::TLWE;
 use super::trlwe::TRLWE;

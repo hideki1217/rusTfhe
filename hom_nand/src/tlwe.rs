@@ -202,8 +202,9 @@ impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
         const L: usize = TLWEHelper::IKS_L;
 
         let culc_tlwe = |s_i: Binary, l: u32, t: u32| {
+            let s_i: f32 = s_i.into();
             // t*s_i/2^{basebit * l}
-            let item = torus!(s_i.to::<f32>() * 0.5_f32.powi(BASEBIT * l as i32) * t as f32);
+            let item:Torus = torus!(s_i * 0.5_f32.powi(BASEBIT * l as i32) * t as f32);
             let tlwe = Cryptor::encrypto(TLWE, next_s_key, item);
             tlwe
         };
@@ -228,7 +229,7 @@ impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
     }
     /// 引数についての境界チェックあり
     /// # Return
-    /// get_unchecked(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE::encrypto(t\*s_i/(2^{bit\*(l+1)}))
+    /// get(i,l,t) = KS\[i\]\[l\]\[t-1\] = TLWE::encrypto(t\*s_i/(2^{bit\*(l+1)}))
     pub fn get(&self, i: usize, l: usize, t: usize) -> &TLWERep<M> {
         &self.0[i][l][t as usize - 1]
     }

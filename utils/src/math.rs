@@ -2,8 +2,8 @@ use crate::mem;
 use array_macro::array;
 use lazy_static::lazy_static;
 use num::{
-    traits::{MulAdd, WrappingAdd, WrappingShr, WrappingSub},
-    Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
+    traits::{MulAdd, WrappingAdd, WrappingSub},
+    Float, Integer, One, ToPrimitive, Unsigned, Zero,
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
@@ -406,14 +406,6 @@ binary_into!(f32);
 binary_into!(i32);
 binary_into!(u32);
 
-impl Binary {
-    pub fn to<T: Num>(&self) -> T {
-        match self {
-            Binary::One => T::one(),
-            Binary::Zero => T::zero(),
-        }
-    }
-}
 impl Display for Binary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         (*self as u32).fmt(f)
