@@ -3,7 +3,7 @@ use array_macro::array;
 use lazy_static::lazy_static;
 use num::{
     traits::{MulAdd, WrappingAdd, WrappingSub},
-    Float, Integer, One, ToPrimitive, Unsigned, Zero,
+    Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
@@ -235,9 +235,9 @@ impl<T: Into<f64> + From<f64>, const N: usize> Polynomial<T, N> {
             .unwrap();
         let polfft = fft_map.get_fft_forward(N / 2);
         // ある数列との要素積したものを用意
-        let mut l_buffer = array![i => Complex::new(self.coef_(i).into(),self.coef_(i+N/2).into()) * polfft.memo[i];N/2];
+        let mut l_buffer = array![i => Complex::new(self.coef_(i).into(),self.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
         polfft.fft.process(&mut l_buffer);
-        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).into(), rhs.coef_(i+N/2).into()) * polfft.memo[i];N/2];
+        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).into(), rhs.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
         polfft.fft.process(&mut r_buffer);
         // 要素積
         l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
@@ -270,9 +270,9 @@ impl<T: Into<f64> + From<f64>, const N: usize> Polynomial<T, N> {
             .unwrap();
         let polfft = fft_map.get_fft_forward(N / 2);
         // ある数列との要素積したものを用意
-        let mut l_buffer = array![i => Complex::new(self.coef_(i).into(),self.coef_(i+N/2).into()) * polfft.memo[i];N/2];
+        let mut l_buffer = array![i => Complex::new(self.coef_(i).into(),self.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
         polfft.fft.process(&mut l_buffer);
-        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).into(), rhs.coef_(i+N/2).into()) * polfft.memo[i];N/2];
+        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).into(), rhs.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
         polfft.fft.process(&mut r_buffer);
         // 要素積
         l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
@@ -532,30 +532,28 @@ impl Decimal<u32> {
     pub fn decomposition_i32<const L: usize>(self, bits: u32) -> [i32; L] {
         let mut u_res = self.decomposition_u32::<L>(bits);
         // res={a_i}, a_i in [-bg/2,bg/2)
-        let bg = 2_u32.pow(bits);
-        let mut i_res = [i32::zero(); L];
-        for i in (0..L).rev() {
+        let bg = 1 << bits;
+        let mut i_res: [MaybeUninit<i32>; L] = unsafe { MaybeUninit::uninit().assume_init() };
+        for (i, i_res_i) in i_res.iter_mut().enumerate().rev() {
             let u = u_res[i];
-            i_res[i] = if u >= bg / 2 {
+            *i_res_i = MaybeUninit::new(if 2 * u >= bg {
                 if i > 0 {
                     u_res[i - 1] += 1;
                 }
                 (u as i32) - (bg as i32)
             } else {
                 u as i32
-            }
+            });
         }
-        i_res
+        mem::transmute::<_, [i32; L]>(i_res)
     }
 
     /// 2進表現から2^bits進表現に変換
     /// - res\[i\] in [0,bg) where bg = 2^{bits}
     /// - N=u32::BITSを2^bitsで表現したときの有効桁数
     pub fn decomposition_u32<const L: usize>(self, bits: u32) -> [u32; L] {
-        assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
+        debug_assert!((L as u32) * bits <= u32::BITS, "Wrong array size");
         const TOTAL: u32 = u32::BITS;
-        let bg = 2_u32.pow(bits);
-        let mask = bg - 1;
 
         let Decimal(u) = self;
         // 丸める
@@ -565,6 +563,7 @@ impl Decimal<u32> {
             0
         });
 
+        let mask = (1 << bits) - 1;
         // res={a_i}, a_i in [0,bg)
         let u_res = array![i => {
             (u >> (TOTAL - bits*((i+1) as u32))) & mask
@@ -620,7 +619,7 @@ impl Into<f64> for &Decimal<u32> {
         if d != 0 {
             let mut u = 1_u64;
             while d & 1 << 63 == 0 {
-                u += 1; 
+                u += 1;
                 d = d.wrapping_shl(1);
             }
             d = d.wrapping_shl(1);
