@@ -3,8 +3,6 @@
 #![feature(test)]
 extern crate test;
 extern crate debug_print;
-extern crate itertools;
-extern crate threadpool;
 
 extern crate utils;
 

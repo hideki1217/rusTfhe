@@ -1,4 +1,4 @@
-use crypto::{
+use hom_nand::{
     digest::Cryptor,
     tfhe::{BootstrappingKey, TFHEHelper, TFHE},
     tlwe::{KeySwitchingKey, TLWEHelper, TLWE},

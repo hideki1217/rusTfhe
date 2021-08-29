@@ -1,5 +1,5 @@
 [package]
-name = "crypto"
+name = "hom_nand"
 version = "0.1.0"
 authors = ["hideki1217 <okumurahidekikangeki@gmail.com>"]
 edition = "2018"
@@ -12,8 +12,6 @@ utils={path="../utils"}
 num="0.4"
 array-macro="2.1"
 debug_print="1.0"
-itertools="0.10"
-threadpool="1.8"
 
 
 
