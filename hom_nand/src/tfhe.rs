@@ -6,7 +6,10 @@ use num::ToPrimitive;
 use utils::math::{Binary, Polynomial, Torus};
 use utils::{pol, torus};
 
-pub struct TFHE<const TLWE_N: usize, const TRLWE_N: usize>;
+pub struct TFHE<const TLWE_N: usize, const TRLWE_N: usize> {
+    bk: BootstrappingKey<TLWE_N, TRLWE_N>,
+    ksk: KeySwitchingKey<TRLWE_N, TLWE_N>,
+}
 
 pub struct TFHEHelper;
 impl TFHEHelper {
@@ -15,7 +18,22 @@ impl TFHEHelper {
 }
 
 impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
-    pub fn hom_nand(
+    pub fn new(s_key_tlwelv0: [Binary; TLWE_N], s_key_tlwelv1: [Binary; TRLWE_N]) -> Self
+    where
+        [(); TRLWE_N / 2]: ,
+    {
+        let ksk = KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0);
+        let bk = BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1));
+        TFHE { bk, ksk }
+    }
+
+    pub fn hom_nand(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
+        Self::hom_nand_impl(input_0, input_1, &self.bk, &self.ksk)
+    }
+    fn hom_nand_impl(
         input_0: TLWERep<TLWE_N>,
         input_1: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
@@ -126,19 +144,19 @@ mod tests {
 
             let rep_0_0 = timeit!(
                 "hom nand 0 0",
-                TFHE::hom_nand(tlwelv0_0(), tlwelv0_0(), &bk, &ksk)
+                TFHE::hom_nand_impl(tlwelv0_0(), tlwelv0_0(), &bk, &ksk)
             );
             let rep_0_1 = timeit!(
                 "hom nand 0 1",
-                TFHE::hom_nand(tlwelv0_0(), tlwelv0_1(), &bk, &ksk)
+                TFHE::hom_nand_impl(tlwelv0_0(), tlwelv0_1(), &bk, &ksk)
             );
             let rep_1_0 = timeit!(
                 "hom nand 1 0",
-                TFHE::hom_nand(tlwelv0_1(), tlwelv0_0(), &bk, &ksk)
+                TFHE::hom_nand_impl(tlwelv0_1(), tlwelv0_0(), &bk, &ksk)
             );
             let rep_1_1 = timeit!(
                 "hom nand 1 1",
-                TFHE::hom_nand(tlwelv0_1(), tlwelv0_1(), &bk, &ksk)
+                TFHE::hom_nand_impl(tlwelv0_1(), tlwelv0_1(), &bk, &ksk)
             );
 
             let res_0_0: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_0_0);
@@ -185,7 +203,7 @@ mod tests {
             let tlwelv0_1 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
             let tlwelv0_0 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
 
-            bencher.iter(|| TFHE::hom_nand(tlwelv0_1.clone(), tlwelv0_0.clone(), &bk, &ksk));
+            bencher.iter(|| TFHE::hom_nand_impl(tlwelv0_1.clone(), tlwelv0_0.clone(), &bk, &ksk));
         }
     }
 }
