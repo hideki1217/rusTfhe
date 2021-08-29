@@ -102,7 +102,7 @@ mod tests {
     use test::Bencher;
 
     #[bench]
-    #[ignore = "a little late, for about 1 minute"]
+    //#[ignore = "a little late, for about 1 minute"]
     fn tfhe_hom_nand(_: &mut Bencher) {
         const TLWE_N: usize = TLWEHelper::N;
         const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;
@@ -162,8 +162,9 @@ mod tests {
     /// <2021/8/25>  1,698,811,866 ns/iter (+/- 192,033,341) // FFT導入
     /// <2021/8/25>  1,643,367,136 ns/iter (+/- 686,612,125) // FFT_MAPを導入
     /// <2021/8/28>  1,500,582,227 ns/iter (+/- 39,434,083) // 事前計算を導入
+    /// <2021/8/29>    400,571,320 ns/iter (+/- 40,190,736) // FloatとDecimalの変換を高速化
     #[bench]
-    #[ignore = "Too late. for about 1 hour"]
+    //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {
         const TLWE_N: usize = TLWEHelper::N;
         const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;

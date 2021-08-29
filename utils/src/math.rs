@@ -2,7 +2,7 @@ use crate::mem;
 use array_macro::array;
 use lazy_static::lazy_static;
 use num::{
-    traits::{MulAdd, WrappingAdd, WrappingSub},
+    traits::{MulAdd, WrappingAdd, WrappingShr, WrappingSub},
     Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
 };
 use rand::{prelude::ThreadRng, Rng};
@@ -617,11 +617,6 @@ where
         self * a + b
     }
 }
-lazy_static! {
-    static ref TWO_POW_TABLE_F64: [f64; u32::BITS as usize] = array![ i =>(0.5).powi(1+i as i32) ;u32::BITS as usize]; // u32::BITS < f64::MANTISSA_DIGITS
-    static ref TWO_POW_TABLE_F32: [f32; f32::MANTISSA_DIGITS as usize] =
-        array![ i => (0.5).powi(1+i as i32) ;f32::MANTISSA_DIGITS as usize];
-}
 impl Into<f64> for Decimal<u32> {
     fn into(self) -> f64 {
         (&self).into()
@@ -629,17 +624,20 @@ impl Into<f64> for Decimal<u32> {
 }
 impl Into<f64> for &Decimal<u32> {
     fn into(self) -> f64 {
-        let mut u = self.0;
-        let f = TWO_POW_TABLE_F64.iter().rev().fold(0_f64, |s, &x| {
-            let flag = u & 1 > 0;
-            u >>= 1;
-            if flag {
-                s + x
-            } else {
-                s
+        let mut d: u64 = (self.0 as u64) << 32;
+        if d != 0 {
+            let mut u = 1_u64;
+            while d & 1 << 63 == 0 {
+                u += 1; 
+                d = d.wrapping_shl(1);
             }
-        });
-        f
+            d = d.wrapping_shl(1);
+
+            d = ((d >> (64 - 52 - 1)) + 1/*四捨五入*/) >> 1; // 仮数部
+            d += (1023 - u) << 52; // 指数部
+                                   // 符号部は0
+        }
+        unsafe { *(&mut d as *mut _ as *mut f64) }
     }
 }
 impl Into<f32> for Decimal<u32> {
@@ -649,57 +647,45 @@ impl Into<f32> for Decimal<u32> {
 }
 impl Into<f32> for &Decimal<u32> {
     fn into(self) -> f32 {
-        let mut u = self.0;
-        u >>= 32 - f32::MANTISSA_DIGITS;
-        let f = TWO_POW_TABLE_F32.iter().rev().fold(0_f32, |s, &x| {
-            let flag = u & 1 > 0;
-            u >>= 1;
-            if flag {
-                s + x
-            } else {
-                s
+        let mut d = self.0;
+        if d != 0 {
+            let mut u = 1_u32;
+            while d & 1 << 31 == 0 {
+                u += 1;
+                d = d.wrapping_shl(1);
             }
-        });
-        f
+            d = d.wrapping_shl(1);
+
+            d = ((d >> (32 - 23 - 1)) + 1/*四捨五入*/) >> 1; // 仮数部
+            d += (127 - u) << 23; // 指数部
+                                  // 符号部は0
+        }
+        unsafe { *(&mut d as *mut _ as *mut f32) }
     }
 }
 impl From<f32> for Decimal<u32> {
-    // floatのメモリ的に有効数字2進24桁なので、その範囲で構成。
     fn from(val: f32) -> Self {
-        let mut x: u32 = 0;
-        {
-            let f_acc = f32::MANTISSA_DIGITS;
-            let end = u32::BITS;
-            let mut val = (val - val.floor()).fract();
-            for &l in TWO_POW_TABLE_F32.iter() {
-                x <<= 1;
-                x += if val >= l {
-                    val -= l;
-                    1
-                } else {
-                    0
-                };
-            }
-            x <<= end - f_acc;
-        }
+        let mut val = (val - val.floor()).fract();
+        let u = unsafe { *(&mut val as *mut _ as *mut u32) };
+        let exp = 127 - ((u & 0b0_11111111_00000000000000000000000_u32) >> 23); // 指数部
+        let x = (u & 0b0_00000000_11111111111111111111111_u32)/*仮数部*/ + (1<<23);
+        let x = if 32 >= exp + 23 {
+            x.wrapping_shl(32 - 23 - exp)
+        } else {
+            (x.wrapping_shr(exp + 23 - 32 - 1) + 1/*四捨五入*/).wrapping_shr(1)
+        };
         Decimal(x)
     }
 }
 impl From<f64> for Decimal<u32> {
     fn from(val: f64) -> Self {
-        let mut x: u32 = 0;
-        {
-            let mut val = (val - val.floor()).fract();
-            for &l in TWO_POW_TABLE_F64.iter() {
-                x <<= 1;
-                x += if val >= l {
-                    val -= l;
-                    1
-                } else {
-                    0
-                };
-            }
-        }
+        let mut val = (val - val.floor()).fract();
+        let u = unsafe { *(&mut val as *mut _ as *mut u64) };
+        let exp: u32 = (1023
+            - ((u & 0b0_11111111111_0000000000_0000000000_0000000000_0000000000_0000000000_00_u64)
+                >> 52)) as u32; // 指数部
+        let x = (u & 0b0_00000000000_1111111111_1111111111_1111111111_1111111111_1111111111_11_u64)/*仮数部*/ + (1<<52);
+        let x = ((x.wrapping_shr(52 - 32 + exp - 1) + 1/*四捨五入*/).wrapping_shr(1)) as u32;
         Decimal(x)
     }
 }
@@ -1027,6 +1013,7 @@ mod tests {
         test(-0.5, 1 << (u32::BITS - 1));
         test(-0.25, (1 << (u32::BITS - 2)) + (1 << (u32::BITS - 1)));
     }
+
     #[test]
     fn decimal_into_f32() {
         let test = |f: f32, g: f32| {
@@ -1039,6 +1026,9 @@ mod tests {
         test(-0.25, 0.75);
         test(0.4, 0.4);
         test(0.123, 0.123);
+        test(1e-6, 1e-6);
+        test(1e-10, 0.0);
+        test(3.1, 0.1);
     }
     #[test]
     fn decimal_into_f64() {
@@ -1052,6 +1042,10 @@ mod tests {
         test(-0.25, 0.75);
         test(0.4, 0.4);
         test(0.123, 0.123);
+        test(1e-6, 1e-6);
+        test(1e-8, 1e-8);
+        test(1e-10, 0.0);
+        test(3.1, 0.1);
     }
     #[test]
     fn decimal_add() {
