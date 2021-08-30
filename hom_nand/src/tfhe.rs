@@ -181,6 +181,7 @@ mod tests {
     /// <2021/8/25>  1,643,367,136 ns/iter (+/- 686,612,125) // FFT_MAPを導入
     /// <2021/8/28>  1,500,582,227 ns/iter (+/- 39,434,083) // 事前計算を導入
     /// <2021/8/29>    400,571,320 ns/iter (+/- 40,190,736) // FloatとDecimalの変換を高速化
+    /// <2021/8/31>    379,600,929 ns/iter (+/- 45,192,670) // 変換を簡略化
     #[bench]
     //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {

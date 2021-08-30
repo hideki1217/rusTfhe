@@ -615,20 +615,8 @@ impl Into<f64> for Decimal<u32> {
 }
 impl Into<f64> for &Decimal<u32> {
     fn into(self) -> f64 {
-        let mut d: u64 = (self.0 as u64) << 32;
-        if d != 0 {
-            let mut u = 1_u64;
-            while d & 1 << 63 == 0 {
-                u += 1;
-                d = d.wrapping_shl(1);
-            }
-            d = d.wrapping_shl(1);
-
-            d = ((d >> (64 - 52 - 1)) + 1/*四捨五入*/) >> 1; // 仮数部
-            d += (1023 - u) << 52; // 指数部
-                                   // 符号部は0
-        }
-        unsafe { *(&mut d as *mut _ as *mut f64) }
+        const X:f64 = 1.0/(u32::MAX as f64);
+        (self.0 as f64) * X
     }
 }
 impl Into<f32> for Decimal<u32> {
@@ -638,46 +626,20 @@ impl Into<f32> for Decimal<u32> {
 }
 impl Into<f32> for &Decimal<u32> {
     fn into(self) -> f32 {
-        let mut d = self.0;
-        if d != 0 {
-            let mut u = 1_u32;
-            while d & 1 << 31 == 0 {
-                u += 1;
-                d = d.wrapping_shl(1);
-            }
-            d = d.wrapping_shl(1);
-
-            d = ((d >> (32 - 23 - 1)) + 1/*四捨五入*/) >> 1; // 仮数部
-            d += (127 - u) << 23; // 指数部
-                                  // 符号部は0
-        }
-        unsafe { *(&mut d as *mut _ as *mut f32) }
+        const X:f32 = 1.0/(u32::MAX as f32);
+        (self.0 as f32) * X
     }
 }
 impl From<f32> for Decimal<u32> {
     fn from(val: f32) -> Self {
-        let mut val = (val - val.floor()).fract();
-        let u = unsafe { *(&mut val as *mut _ as *mut u32) };
-        let exp = 127 - ((u & 0b0_11111111_00000000000000000000000_u32) >> 23); // 指数部
-        let x = (u & 0b0_00000000_11111111111111111111111_u32)/*仮数部*/ + (1<<23);
-        let x = if 32 >= exp + 23 {
-            x.wrapping_shl(32 - 23 - exp)
-        } else {
-            (x.wrapping_shr(exp + 23 - 32 - 1) + 1/*四捨五入*/).wrapping_shr(1)
-        };
-        Decimal(x)
+        const X:f32 = u32::MAX as f32;
+        Decimal( ((val-val.floor()).fract() * X) as u32 )
     }
 }
 impl From<f64> for Decimal<u32> {
     fn from(val: f64) -> Self {
-        let mut val = (val - val.floor()).fract();
-        let u = unsafe { *(&mut val as *mut _ as *mut u64) };
-        let exp: u32 = (1023
-            - ((u & 0b0_11111111111_0000000000_0000000000_0000000000_0000000000_0000000000_00_u64)
-                >> 52)) as u32; // 指数部
-        let x = (u & 0b0_00000000000_1111111111_1111111111_1111111111_1111111111_1111111111_11_u64)/*仮数部*/ + (1<<52);
-        let x = ((x.wrapping_shr(52 - 32 + exp - 1) + 1/*四捨五入*/).wrapping_shr(1)) as u32;
-        Decimal(x)
+        const X:f64 = u32::MAX as f64;
+        Decimal( ((val-val.floor()).fract() * X) as u32 )
     }
 }
 impl Display for Decimal<u32> {
@@ -722,7 +684,9 @@ mod tests {
         let l_dec = pol!([torus!(0.5), torus!(0.75)]);
         let r_dec = pol!([torus!(0.75), torus!(0.5)]);
 
-        assert!((l_dec + r_dec).0 == [torus!(0.25), torus!(0.25)]);
+        let res = (l_dec + r_dec).0;
+        assert!(torus_range_eq(res[0], torus!(0.25), 1e-9));
+        assert!(torus_range_eq(res[1], torus!(0.25), 1e-9));
     }
     #[test]
     fn polynomial_schalar() {
@@ -731,8 +695,9 @@ mod tests {
         assert!((integer * 3).0 == [6, 9, 12, 15]);
 
         let dec = pol!([torus!(0.5), torus!(0.75)]);
-
-        assert!((dec * 3).0 == [torus!(0.5), torus!(0.25)]);
+        let res = (dec * 3).0;
+        assert!( torus_range_eq(res[0], torus!(0.5), 1e-9));
+        assert!( torus_range_eq(res[1], torus!(0.25), 1e-9));
     }
     #[test]
     fn polynomial_cross() {
@@ -993,9 +958,9 @@ mod tests {
     }
     #[test]
     fn decimal_from_f64() {
-        let test = |f: f64, respect: u32| {
+        let test = |f: f64, expect: u32| {
             let Decimal(res) = torus!(f);
-            assert_eq!(res, respect, "test for {}", f);
+            assert!(range_eq(res, expect, 8), "test for {}", f);
         };
 
         test(0.5, 1 << (u32::BITS - 1));
