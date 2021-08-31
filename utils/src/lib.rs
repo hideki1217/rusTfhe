@@ -8,22 +8,16 @@ extern crate lazy_static;
 pub mod macros;
 pub mod math;
 pub mod mem;
+pub mod traits;
 
 
 #[cfg(test)]
 mod tests {
-    use crate::math::Decimal;
-
-    
     
     #[test]
     fn playground() {
-        let u = 0x8000_0000_u32;
-        let f_u = (u as f32) / ((u32::MAX)as f32);
-        let f = 0.5_f32;
-        let u_f = (f * 2.0_f32.powi(32)) as u32;
-        let x = 1.5;
-        let y = x%1.0;
-        let x = 1;
+        let s = "12345".chars();
+        let b = s.eq(['1','2']);
+        let x = 2;
     }
 }

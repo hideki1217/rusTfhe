@@ -3,7 +3,7 @@ use array_macro::array;
 use lazy_static::lazy_static;
 use num::{
     traits::{MulAdd, WrappingAdd, WrappingSub},
-    Float, Integer, Num, One, ToPrimitive, Unsigned, Zero,
+    Float, Integer, One, ToPrimitive, Unsigned, Zero,
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};

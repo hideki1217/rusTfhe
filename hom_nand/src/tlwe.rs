@@ -1,7 +1,7 @@
 use super::digest::{Crypto, Encryptable, Encrypted, Cryptor};
 use num::Zero;
 use std::ops::{Add, Mul, Sub};
-use utils::{math::{Binary, ModDistribution, Random, Torus}, torus};
+use utils::{math::{Binary, ModDistribution, Random, Torus}, torus, traits::AsLogic};
 
 pub struct TLWE<const N: usize>;
 macro_rules! tlwe_encryptable {
@@ -56,8 +56,16 @@ impl<const N: usize> TLWERep<N> {
     }
 
     #[inline]
-    pub fn trivial_one(text: Torus) -> Self {
+    pub fn trivial(text: Torus) -> Self {
         TLWERep::new(text, [Torus::zero(); N])
+    }
+}
+impl<const N: usize> AsLogic for TLWERep<N>{
+    fn logic_true() -> Self {
+        Self::trivial(TLWEHelper::binary2torus(Binary::One))
+    }
+    fn logic_false() -> Self {
+        Self::trivial(TLWEHelper::binary2torus(Binary::Zero))
     }
 }
 impl<const N: usize> Add for TLWERep<N> {

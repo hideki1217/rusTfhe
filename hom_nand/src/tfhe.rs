@@ -43,7 +43,7 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         [(); TRLWE_N / 2]: ,
     {
         let tlwelv0 = // 1 1 => < 0, other => > 0
-            TLWERep::trivial_one(torus!(TFHEHelper::COEF)) - (input_0 + input_1);
+            TLWERep::trivial(torus!(TFHEHelper::COEF)) - (input_0 + input_1);
         let tlwelv1 = Self::gate_bootstrapping_tlwe2tlwe(tlwelv0, bk);
         tlwelv1.identity_key_switch(ks)
     }
