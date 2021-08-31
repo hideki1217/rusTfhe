@@ -1,4 +1,4 @@
-# homNand
+# rusTfhe
 Secret calculation library based on tfhe,and written in pure Rust.
 
 # crates
