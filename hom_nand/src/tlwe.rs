@@ -265,20 +265,24 @@ mod tests {
         let r = TLWERep::new(torus!(0.25), [torus!(0.125), torus!(0.5)]);
 
         let res = l.clone() + r.clone();
-        assert_eq!(res.cipher, torus!(0.75), "l_plus_r.cipher");
-        assert_eq!(res.p_key, [torus!(0.625), torus!(0.75)], "l_plus_r.p_key");
+        assert!(res.cipher.is_in(torus!(0.75), 1e-9));
+        assert!(res.p_key[0].is_in(torus!(0.625), 1e-9));
+        assert!(res.p_key[1].is_in(torus!(0.75), 1e-9));
 
         let res = l.clone() - r.clone();
-        assert_eq!(res.cipher, torus!(0.25), "l_minus_r.cipher");
-        assert_eq!(res.p_key, [torus!(0.375), torus!(0.75)], "l_minus_r.p_key");
+        assert!(res.cipher.is_in(torus!(0.25), 1e-9));
+        assert!(res.p_key[0].is_in(torus!(0.375), 1e-9));
+        assert!(res.p_key[1].is_in(torus!(0.75), 1e-9));
 
         let res = l.clone() * 3;
-        assert_eq!(res.cipher, torus!(0.5));
-        assert_eq!(res.p_key, [torus!(0.5), torus!(0.75)]);
+        assert!(res.cipher.is_in(torus!(0.5), 1e-9));
+        assert!(res.p_key[0].is_in(torus!(0.5), 1e-9));
+        assert!(res.p_key[1].is_in(torus!(0.75), 1e-9));
 
         let res = l.clone() * 0;
-        assert_eq!(res.cipher, torus!(0.0));
-        assert_eq!(res.p_key, [torus!(0.0), torus!(0.0)]);
+        assert!(res.cipher.is_in(torus!(0.0), 1e-9));
+        assert!(res.p_key[0].is_in(torus!(0.0), 1e-9));
+        assert!(res.p_key[1].is_in(torus!(0.0), 1e-9));
     }
 
     #[test]

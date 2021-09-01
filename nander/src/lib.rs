@@ -4,7 +4,7 @@
 extern crate hom_nand;
 extern crate utils;
 
-use std::{str::Chars};
+use std::str::Chars;
 use hom_nand::{tfhe::TFHE, tlwe::TLWERep};
 use utils::traits::AsLogic;
 
@@ -68,7 +68,7 @@ pub fn eval_logic_expr<P: Logip>(pros: &P, exp: LogicExpr<<P as Logip>::R>) -> <
         LogicExpr::<<P as Logip>::R>::Leaf(elem) => elem,
     }
 }
-pub fn parse_logic_expr<R: AsLogic>(l: &str) -> LogicExpr<R> {
+pub fn parse_logic_expr<R: AsLogic>(l: &str) -> Result<LogicExpr<R>,&str> {
     const ZERO: char = '0';
     const ONE: char = '1';
     const AND: char = '&';
@@ -82,70 +82,73 @@ pub fn parse_logic_expr<R: AsLogic>(l: &str) -> LogicExpr<R> {
     l.retain(|c| !c.is_whitespace());
     let mut l = l.as_str().chars();
 
-    return *parse_binary_op::<R>(&mut l);
+    return match parse_binary_op::<R>(&mut l){
+        Result::Ok(item) => Ok(*item),
+        Result::Err(err) => Err(err),
+    };
 
-    fn parse_binary_op<R: AsLogic>(l: &mut Chars) -> Box<LogicExpr<R>> {
-        let mut lhs = parse_mono_op::<R>(l);
+    fn parse_binary_op<R: AsLogic>(l: &mut Chars) -> Result<Box<LogicExpr<R>>,&'static str> {
+        let mut lhs = parse_mono_op::<R>(l)?;
         loop {
             match l.clone().next() {
                 Option::Some(c) => match c {
                     AND => {
                         l.next();
-                        lhs = Box::new(LogicExpr::And(lhs, parse_mono_op(l)));
+                        lhs = Box::new(LogicExpr::And(lhs, parse_mono_op(l)?));
                     }
                     OR => {
                         l.next();
-                        lhs = Box::new(LogicExpr::Or(lhs, parse_mono_op(l)));
+                        lhs = Box::new(LogicExpr::Or(lhs, parse_mono_op(l)?));
                     }
                     XOR => {
                         l.next();
-                        lhs = Box::new(LogicExpr::Xor(lhs, parse_mono_op(l)));
+                        lhs = Box::new(LogicExpr::Xor(lhs, parse_mono_op(l)?));
                     }
                     NAND => {
                         l.next();
-                        lhs = Box::new(LogicExpr::Nand(lhs, parse_mono_op(l)));
+                        lhs = Box::new(LogicExpr::Nand(lhs, parse_mono_op(l)?));
                     }
                     _ => {
-                        return lhs;
+                        return Ok(lhs);
                     }
                 },
                 Option::None => {
                     l.next();
-                    return lhs;
+                    return Ok(lhs);
                 }
             }
         }
     }
-    fn parse_mono_op<R: AsLogic>(l: &mut Chars) -> Box<LogicExpr<R>> {
+    fn parse_mono_op<R: AsLogic>(l: &mut Chars) -> Result<Box<LogicExpr<R>>,&'static str> {
         if let Some(c) = l.clone().next() {
             if c == NOT {
                 l.next();
-                return Box::new(LogicExpr::Not(parse_mono_op(l)));
+                return Ok(Box::new(LogicExpr::Not(parse_mono_op(l)?)));
             }
         }
-        parse_elem(l)
+        Ok(parse_elem(l)?)
     }
-    fn parse_elem<R: AsLogic>(l: &mut Chars) -> Box<LogicExpr<R>> {
+    fn parse_elem<R: AsLogic>(l: &mut Chars) -> Result<Box<LogicExpr<R>>,&'static str> {
         match l.next() {
             Option::Some(c) => match c {
-                ZERO => Box::new(LogicExpr::Leaf(R::logic_false())),
-                ONE => Box::new(LogicExpr::Leaf(R::logic_true())),
+                ZERO => Ok(Box::new(LogicExpr::Leaf(R::logic_false()))),
+                ONE => Ok(Box::new(LogicExpr::Leaf(R::logic_true()))),
                 LEFT => {
-                    let e = parse_binary_op::<R>(l);
+                    let e = parse_binary_op::<R>(l)?;
                     if let Some(c) = l.next() {
                         if c == RIGHT {
-                            e
+                            Ok(e)
                         } else {
-                            panic!("braket is not closed")
+                            Err("braket is not closed")
                         }
                     } else {
-                        panic!("braket is not closed")
+                        Err("braket is not closed")
                     }
                 }
-                _ => panic!("invalid element"),
+                _ => Err("invalid element"),
             },
             Option::None => {
-                panic!("invalid element. this is none")
+                Err("invalid element. this is none")
             }
         }
     }

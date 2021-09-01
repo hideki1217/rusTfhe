@@ -8,5 +8,11 @@ Secret calculation library based on tfhe,and written in pure Rust.
 
 # build
 - cargo 1.56.0-nightly
+```
+git clone https://github.com/hideki1217/rusTfhe
+cd rusTfhe
+cargo build --release
+cargo run --release 
+```
 
 
