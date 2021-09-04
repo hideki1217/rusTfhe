@@ -1,10 +1,11 @@
-use num::{ToPrimitive, Zero};
+use array_macro::array;
+use num::{Complex, ToPrimitive, Zero};
 use std::mem::MaybeUninit;
 use crate::trlwe::TRLWERep;
 use super::digest::{Crypto, Cryptor, Encryptable, Encrypted};
 use super::tlwe::TLWE;
 use super::trlwe::TRLWE;
-use utils::math::{Binary, Cross, Polynomial, Torus};
+use utils::math::{Binary, Cross, Decimal, Polynomial, Torus};
 use utils::torus;
 
 pub struct TRGSW<const N: usize>;
@@ -237,17 +238,42 @@ where
         let a_decomp = rhs.p_key().decomposition::<L>(BGBIT);
         let (b_trgsw, a_trgsw) = self.get_ref();
 
-        // (cipher,p_key) = C*(b,a) = (b.decomp[0],..,,a.decomp[0],..)*(b_trgsw,a_trgsw)
-        let cipher = (0..L).fold(Polynomial::<Torus, N>::zero(), |s, i| {
-            let s = b_trgsw[i].fft_mul_add(&b_decomp[i], s);
-            let s = b_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
-            s
-        });
-        let p_key = (0..L).fold(Polynomial::<Torus, N>::zero(), |s, i| {
-            let s = a_trgsw[i].fft_mul_add(&b_decomp[i], s);
-            let s = a_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
-            s
-        });
+        let (cipher,p_key) = {
+            let fftpol = utils::math::get_fft(N/2);
+            let b_decomp_fft = array![i => fftpol.prologue_to_cross(&b_decomp[i]);L];
+            let a_decomp_fft = array![i => fftpol.prologue_to_cross(&a_decomp[i]);L];
+
+            let zero_fft = [Complex::<f64>::zero();N/2];// 一回Copyされる
+            
+            // (cipher,p_key) = C*(b,a) = (b.decomp[0],..,,a.decomp[0],..)*(b_trgsw,a_trgsw)
+            let cipher_fft = (0..L).fold(zero_fft, |mut s, i| {
+                let b_trgsw_i_fft = fftpol.prologue_to_cross(&b_trgsw[i]);
+                let b_trgsw_i_plus_l_fft = fftpol.prologue_to_cross(&b_trgsw[i+L]);
+
+                // let s = b_trgsw[i].fft_mul_add(&b_decomp[i], s);
+                // let s = b_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
+                s.iter_mut().enumerate().for_each(|(j,s)|{
+                    *s += b_trgsw_i_fft[j]*b_decomp_fft[i][j] + b_trgsw_i_plus_l_fft[j]*a_decomp_fft[i][j];
+                });
+                s
+            });
+            let p_key_fft = (0..L).fold(zero_fft, |mut s, i| {
+                let a_trgsw_i_fft = fftpol.prologue_to_cross(&a_trgsw[i]);
+                let a_trgsw_i_plus_l_fft = fftpol.prologue_to_cross(&a_trgsw[i+L]);
+
+                //let s = a_trgsw[i].fft_mul_add(&b_decomp[i], s);
+                //let s = a_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
+                s.iter_mut().enumerate().for_each(|(j,s)|{
+                    *s += a_trgsw_i_fft[j]*b_decomp_fft[i][j] + a_trgsw_i_plus_l_fft[j]*a_decomp_fft[i][j];
+                });
+                s
+            });
+
+            let ifftpol = utils::math::get_ifft(N/2);
+            let cipher:Polynomial<Torus,N> = ifftpol.epilogue_to_cross(cipher_fft);
+            let p_key:Polynomial<Torus,N> = ifftpol.epilogue_to_cross(p_key_fft);
+            (cipher,p_key)
+        };
 
         TRLWERep::new(cipher, p_key)
     }

@@ -8,7 +8,7 @@ use num::{
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
 use rustfft::{num_complex::Complex, Fft, FftNum, FftPlanner};
-use std::sync::RwLock;
+use std::{ops::MulAssign, sync::RwLock};
 use std::{
     collections::HashMap,
     f64::consts::PI,
@@ -220,6 +220,16 @@ impl<T, const N: usize> Polynomial<T, N> {
         self.0.iter_mut()
     }
 }
+impl<const N: usize> Polynomial<Decimal<u32>, N> {
+    pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
+        let res: [[i32; L]; N] = array![ i => {
+            self.coef_(i).decomposition_i32(bits)
+        }; N];
+        array![ i => {
+            pol!(array![ j => res[j][i]; N])
+        }; L]
+    }
+}
 impl<T: Into<f64> + From<f64>, const N: usize> Polynomial<T, N> {
     /// # Panic
     /// - 'self.len() % 2 > 0'
@@ -295,6 +305,20 @@ impl<T: Into<f64> + From<f64>, const N: usize> Polynomial<T, N> {
         s
     }
 }
+pub fn get_fft(n: usize) -> Arc<PolFft<f64>> {
+    FFT_MAP
+        .write()
+        .map_err(|_| "FFT_MAP: error")
+        .unwrap()
+        .get_fft_forward(n)
+}
+pub fn get_ifft(n: usize) -> Arc<PolFft<f64>> {
+    FFT_MAP
+        .write()
+        .map_err(|_| "FFT_MAP: error")
+        .unwrap()
+        .get_fft_inverse(n)
+}
 lazy_static! {
     static ref FFT_MAP: RwLock<FftMap<f64>> = RwLock::new(FftMap::new());
 }
@@ -336,7 +360,7 @@ impl<T: FftNum + Float> FftMap<T> {
         }
     }
 }
-struct PolFft<T: FftNum> {
+pub struct PolFft<T: FftNum> {
     pub fft: Arc<dyn Fft<T>>,
     pub memo: Vec<Complex<T>>,
 }
@@ -363,15 +387,27 @@ impl<T: FftNum + Float> PolFft<T> {
         }
         PolFft { fft, memo }
     }
-}
-impl<const N: usize> Polynomial<Decimal<u32>, N> {
-    pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
-        let res: [[i32; L]; N] = array![ i => {
-            self.coef_(i).decomposition_i32(bits)
-        }; N];
-        array![ i => {
-            pol!(array![ j => res[j][i]; N])
-        }; L]
+    pub fn prologue_to_cross<const N: usize, S: Into<T> + Copy>(
+        &self,
+        pol: &Polynomial<S, N>,
+    ) -> [Complex<T>; N / 2]
+    {
+        let mut buffer = array![i => Complex::new(pol.coef_(i).into(),pol.coef_(i+N/2).into()) * unsafe {self.memo.get_unchecked(i)};N/2];
+        self.fft.process(&mut buffer);
+        buffer
+    }
+    pub fn epilogue_to_cross<const N:usize,S:From<T>>(&self,mut l:[Complex<T>;N/2]) -> Polynomial<S,N>{
+        let half_n_inv:T = T::from_f64(2.0/ N as f64).unwrap();
+        // 逆FFTで畳み込みに変換
+        self.fft.process(&mut l);
+        // 要素積の分補正
+        l
+            .iter_mut()
+            .zip(self.memo.iter())
+            .for_each(|(z, e_i)| *z = *z * e_i * half_n_inv);
+        pol!(
+            array![ i => if i < N/2 { S::from(l[i].re) } else { S::from(l[i-N/2].im) } ;N]
+        )
     }
 }
 
@@ -441,6 +477,34 @@ impl ModDistribution<Normal<f32>, ThreadRng> {
 impl ModDistribution<Uniform<f32>, ThreadRng> {
     pub fn uniform() -> Self {
         ModDistribution {
+            distr: Uniform::new(0.0, 1.0),
+            rng: rand::thread_rng(),
+        }
+    }
+}
+
+pub struct ComplexDistribution<X: Distribution<f64>, R: Rng> {
+    distr: X,
+    rng: R,
+}
+impl<X: Distribution<f64>, R: Rng> Random<Complex<f64>> for ComplexDistribution<X, R> {
+    fn gen(&mut self) -> Complex<f64> {
+        let r = self.distr.sample(&mut self.rng);
+        let i = self.distr.sample(&mut self.rng);
+        Complex::new(r, i)
+    }
+}
+impl ComplexDistribution<Normal<f64>, ThreadRng> {
+    pub fn gaussian(std_dev: f64) -> Self {
+        ComplexDistribution {
+            distr: Normal::new(f64::neg_zero(), std_dev).unwrap(),
+            rng: rand::thread_rng(),
+        }
+    }
+}
+impl ComplexDistribution<Uniform<f64>, ThreadRng> {
+    pub fn uniform() -> Self {
+        ComplexDistribution {
             distr: Uniform::new(0.0, 1.0),
             rng: rand::thread_rng(),
         }
@@ -615,7 +679,7 @@ impl Into<f64> for Decimal<u32> {
 }
 impl Into<f64> for &Decimal<u32> {
     fn into(self) -> f64 {
-        const X:f64 = 1.0/(u32::MAX as f64);
+        const X: f64 = 1.0 / (u32::MAX as f64);
         (self.0 as f64) * X
     }
 }
@@ -626,20 +690,20 @@ impl Into<f32> for Decimal<u32> {
 }
 impl Into<f32> for &Decimal<u32> {
     fn into(self) -> f32 {
-        const X:f32 = 1.0/(u32::MAX as f32);
+        const X: f32 = 1.0 / (u32::MAX as f32);
         (self.0 as f32) * X
     }
 }
 impl From<f32> for Decimal<u32> {
     fn from(val: f32) -> Self {
-        const X:f32 = u32::MAX as f32;
-        Decimal( ((val-val.floor()).fract() * X) as u32 )
+        const X: f32 = u32::MAX as f32;
+        Decimal(((val - val.floor()).fract() * X) as u32)
     }
 }
 impl From<f64> for Decimal<u32> {
     fn from(val: f64) -> Self {
-        const X:f64 = u32::MAX as f64;
-        Decimal( ((val-val.floor()).fract() * X) as u32 )
+        const X: f64 = u32::MAX as f64;
+        Decimal(((val - val.floor()).fract() * X) as u32)
     }
 }
 impl Display for Decimal<u32> {
@@ -696,8 +760,8 @@ mod tests {
 
         let dec = pol!([torus!(0.5), torus!(0.75)]);
         let res = (dec * 3).0;
-        assert!( torus_range_eq(res[0], torus!(0.5), 1e-9));
-        assert!( torus_range_eq(res[1], torus!(0.25), 1e-9));
+        assert!(torus_range_eq(res[0], torus!(0.5), 1e-9));
+        assert!(torus_range_eq(res[1], torus!(0.25), 1e-9));
     }
     #[test]
     fn polynomial_cross() {

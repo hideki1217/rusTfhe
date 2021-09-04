@@ -126,7 +126,7 @@ where
     fn encrypto(&self, key: &Self::SecretKey, rep: Polynomial<Torus, N>) -> Self::Representation {
         let mut unif = ModDistribution::uniform();
         let mut norm = ModDistribution::gaussian(TRLWEHelper::ALPHA);
-
+        
         let a = pol!(unif.gen_n::<N>());
         let e = pol!(norm.gen_n::<N>());
 
