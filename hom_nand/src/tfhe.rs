@@ -26,24 +26,75 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         let bk = BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1));
         TFHE { bk, ksk }
     }
-
+    /// (input_1&control)|(input_0&!control)
+    pub fn hom_mux(
+        &self,
+        control: TLWERep<TLWE_N>,
+        input_0: TLWERep<TLWE_N>,
+        input_1: TLWERep<TLWE_N>,
+    ) -> TLWERep<TLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
+        let i_1 = self.hom_and(control.clone(), input_1);
+        let i_0 = self.hom_and(-control, input_0);
+        Self::bootstrap(i_1+i_0+TLWERep::trivial(torus!(TFHEHelper::COEF)), &self.bk, &self.ksk)
+    }
     pub fn hom_nand(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
     where
         [(); TRLWE_N / 2]: ,
     {
-        Self::hom_nand_impl(input_0, input_1, &self.bk, &self.ksk)
+        Self::bootstrap(
+            TLWERep::trivial(torus!(TFHEHelper::COEF)) - (input_0 + input_1),
+            &self.bk,
+            &self.ksk,
+        )
     }
-    fn hom_nand_impl(
-        input_0: TLWERep<TLWE_N>,
-        input_1: TLWERep<TLWE_N>,
+    pub fn hom_and(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
+        Self::bootstrap(
+            (input_0 + input_1) - TLWERep::trivial(torus!(TFHEHelper::COEF)),
+            &self.bk,
+            &self.ksk,
+        )
+    }
+    pub fn hom_or(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
+        Self::bootstrap(
+            (input_0 + input_1) + TLWERep::trivial(torus!(TFHEHelper::COEF)),
+            &self.bk,
+            &self.ksk,
+        )
+    }
+    pub fn hom_xor(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
+        Self::bootstrap(
+            (input_0 + input_1) * 2 + TLWERep::trivial(torus!(2.0 * TFHEHelper::COEF)),
+            &self.bk,
+            &self.ksk,
+        )
+    }
+    pub fn hom_not(&self, input: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
+    where
+        [(); TRLWE_N / 2]: ,
+    {
+        Self::bootstrap(-input, &self.bk, &self.ksk)
+    }
+
+    fn bootstrap(
+        tlwelv0: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
         ks: &KeySwitchingKey<TRLWE_N, TLWE_N>,
     ) -> TLWERep<TLWE_N>
     where
         [(); TRLWE_N / 2]: ,
     {
-        let tlwelv0 = // 1 1 => < 0, other => > 0
-            TLWERep::trivial(torus!(TFHEHelper::COEF)) - (input_0 + input_1);
         let tlwelv1 = Self::gate_bootstrapping_tlwe2tlwe(tlwelv0, bk);
         tlwelv1.identity_key_switch(ks)
     }
@@ -111,6 +162,7 @@ impl<const PRE_N: usize, const N: usize> BootstrappingKey<PRE_N, N> {
 
 #[cfg(test)]
 mod tests {
+    use array_macro::array;
     use std::time;
     use utils::math::{BinaryDistribution, Random};
     use utils::timeit;
@@ -128,50 +180,111 @@ mod tests {
         let s_key_tlwelv0 = unif.gen_n::<TLWE_N>();
         let s_key_tlwelv1 = unif.gen_n::<TRLWE_N>();
 
-        let ksk = timeit!(
-            "make ksk",
-            KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0)
-        );
-        let bk = timeit!(
-            "make bk",
-            BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1))
-        );
+        let tfhe = TFHE::new(s_key_tlwelv0, s_key_tlwelv1);
 
+        let tlwelv0_1 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
+        let tlwelv0_0 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
+        let tlwelv0_ = |b: Binary| match b {
+            Binary::One => tlwelv0_1(),
+            Binary::Zero => tlwelv0_0(),
+        };
         {
-            // Nandか確認
-            let tlwelv0_1 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
-            let tlwelv0_0 = || Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
+            let title = "nand";
+            let rep = array![ i => {
+                let input_0 = Binary::from(i&0b01);
+                let input_1 = Binary::from(i&0b10);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_nand(tlwelv0_(input_0), tlwelv0_(input_1)))
+            };4];
 
-            let rep_0_0 = timeit!(
-                "hom nand 0 0",
-                TFHE::hom_nand_impl(tlwelv0_0(), tlwelv0_0(), &bk, &ksk)
-            );
-            let rep_0_1 = timeit!(
-                "hom nand 0 1",
-                TFHE::hom_nand_impl(tlwelv0_0(), tlwelv0_1(), &bk, &ksk)
-            );
-            let rep_1_0 = timeit!(
-                "hom nand 1 0",
-                TFHE::hom_nand_impl(tlwelv0_1(), tlwelv0_0(), &bk, &ksk)
-            );
-            let rep_1_1 = timeit!(
-                "hom nand 1 1",
-                TFHE::hom_nand_impl(tlwelv0_1(), tlwelv0_1(), &bk, &ksk)
-            );
+            let res = array![i=> {
+                let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
+                res
+            };4];
 
-            let res_0_0: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_0_0);
-            let res_0_1: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_0_1);
-            let res_1_0: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_1_0);
-            let res_1_1: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep_1_1);
-
+            let expect = [Binary::One, Binary::One, Binary::One, Binary::Zero];
             assert_eq!(
-                [res_0_0, res_0_1, res_1_0, res_1_1],
-                [Binary::One, Binary::One, Binary::One, Binary::Zero],
-                "0 nand 0 = 1 ?{} ,0 nand 1 = 1 ?{} ,1 nand 0 = 1 ?{} ,1 nand 1 = 0 ?{}",
-                res_0_0,
-                res_0_1,
-                res_1_0,
-                res_1_1
+                res, expect,
+                "{}: 0 * 0 = {} ?{} ,0 * 1 = {} ?{} ,1 * 0 = {} ?{} ,1 * 1 = {} ?{}",
+                title, expect[0], res[0], expect[1], res[1], expect[2], res[2], expect[3], res[3]
+            );
+        }
+        {
+            let title = "and";
+            let rep = array![ i => {
+                let input_0 = Binary::from(i&0b01);
+                let input_1 = Binary::from(i&0b10);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_and(tlwelv0_(input_0), tlwelv0_(input_1)))
+            };4];
+
+            let res = array![i=> {
+                let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
+                res
+            };4];
+
+            let expect = [Binary::Zero, Binary::Zero, Binary::Zero, Binary::One];
+            assert_eq!(
+                res, expect,
+                "{}: 0 * 0 = {} ?{} ,0 * 1 = {} ?{} ,1 * 0 = {} ?{} ,1 * 1 = {} ?{}",
+                title, expect[0], res[0], expect[1], res[1], expect[2], res[2], expect[3], res[3]
+            );
+        }
+        {
+            let title = "or";
+            let rep = array![ i => {
+                let input_0 = Binary::from(i&0b01);
+                let input_1 = Binary::from(i&0b10);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_or(tlwelv0_(input_0), tlwelv0_(input_1)))
+            };4];
+
+            let res = array![i=> {
+                let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
+                res
+            };4];
+
+            let expect = [Binary::Zero, Binary::One, Binary::One, Binary::One];
+            assert_eq!(
+                res, expect,
+                "{}: 0 * 0 = {} ?{} ,0 * 1 = {} ?{} ,1 * 0 = {} ?{} ,1 * 1 = {} ?{}",
+                title, expect[0], res[0], expect[1], res[1], expect[2], res[2], expect[3], res[3]
+            );
+        }
+        {
+            let title = "xor";
+            let rep = array![ i => {
+                let input_0 = Binary::from(i&0b01);
+                let input_1 = Binary::from(i&0b10);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_xor(tlwelv0_(input_0), tlwelv0_(input_1)))
+            };4];
+
+            let res = array![i=> {
+                let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
+                res
+            };4];
+
+            let expect = [Binary::Zero, Binary::One, Binary::One, Binary::Zero];
+            assert_eq!(
+                res, expect,
+                "{}: 0 * 0 = {} ?{} ,0 * 1 = {} ?{} ,1 * 0 = {} ?{} ,1 * 1 = {} ?{}",
+                title, expect[0], res[0], expect[1], res[1], expect[2], res[2], expect[3], res[3]
+            );
+        }
+        {
+            let title = "not";
+            let rep = array![ i => {
+                let input = Binary::from(i&0b1);
+                timeit!(format!("{} {}",title, input),tfhe.hom_not(tlwelv0_(input)))
+            };2];
+
+            let res = array![i=> {
+                let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
+                res
+            };2];
+
+            let expect = [Binary::One, Binary::Zero];
+            assert_eq!(
+                res, expect,
+                "{}: ~0 = {} ?{} ,~1 = {} ?{}",
+                title, expect[0], res[0], expect[1], res[1]
             );
         }
     }
@@ -191,20 +304,13 @@ mod tests {
         let s_key_tlwelv0 = unif.gen_n::<TLWE_N>();
         let s_key_tlwelv1 = unif.gen_n::<TRLWE_N>();
 
-        let ksk = timeit!(
-            "make ksk",
-            KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0)
-        );
-        let bk = timeit!(
-            "make bk",
-            BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1))
-        );
+        let tfhe = TFHE::new(s_key_tlwelv0, s_key_tlwelv1);
 
         {
             let tlwelv0_1 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::One);
             let tlwelv0_0 = Cryptor::encrypto(TLWE, &s_key_tlwelv0, Binary::Zero);
 
-            bencher.iter(|| TFHE::hom_nand_impl(tlwelv0_1.clone(), tlwelv0_0.clone(), &bk, &ksk));
+            bencher.iter(|| tfhe.hom_nand(tlwelv0_1.clone(), tlwelv0_0.clone()));
         }
     }
 }

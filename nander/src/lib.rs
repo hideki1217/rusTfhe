@@ -40,6 +40,22 @@ where
     fn nand(&self, lhs: Self::R, rhs: Self::R) -> Self::R {
         self.hom_nand(lhs, rhs)
     }
+
+    fn not(&self, b: Self::R) -> Self::R {
+        self.hom_not(b)
+    }
+
+    fn and(&self, lhs: Self::R, rhs: Self::R) -> Self::R {
+        self.hom_and(lhs, rhs)
+    }
+
+    fn or(&self, lhs: Self::R, rhs: Self::R) -> Self::R {
+        self.hom_or(lhs, rhs)
+    }
+
+    fn xor(&self, lhs: Self::R, rhs: Self::R) -> Self::R {
+        self.hom_xor(lhs, rhs)
+    }
 }
 
 pub enum LogicExpr<R: AsLogic> {

@@ -1,6 +1,6 @@
 use super::digest::{Crypto, Encryptable, Encrypted, Cryptor};
 use num::Zero;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Mul, Neg, Sub};
 use utils::{math::{Binary, ModDistribution, Random, Torus}, torus, traits::AsLogic};
 
 pub struct TLWE<const N: usize>;
@@ -104,6 +104,15 @@ impl<const N: usize> Sub<&Self> for TLWERep<N> {
             .zip(a_.iter())
             .for_each(|(x, &y)| *x = *x - y);
         TLWERep::new(b - *b_, a_res)
+    }
+}
+impl<const N:usize> Neg for TLWERep<N>{
+    type Output=Self;
+    fn neg(self) -> Self::Output {
+        let (mut b,mut a) = self.get_and_drop();
+        b = -b;
+        a.iter_mut().for_each(|x|*x = -*x);
+        TLWERep::new(b,a)
     }
 }
 impl<const N: usize, Int: Copy> Mul<Int> for TLWERep<N>
