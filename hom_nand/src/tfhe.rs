@@ -193,9 +193,10 @@ mod tests {
             let rep = array![ i => {
                 let input_0 = Binary::from(i&0b01);
                 let input_1 = Binary::from(i&0b10);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_nand(tlwelv0_(input_0), tlwelv0_(input_1)))
+                let input_0_tlwe = tlwelv0_(input_0);
+                let input_1_tlwe = tlwelv0_(input_1);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_nand(input_0_tlwe, input_1_tlwe))
             };4];
-
             let res = array![i=> {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
@@ -213,9 +214,10 @@ mod tests {
             let rep = array![ i => {
                 let input_0 = Binary::from(i&0b01);
                 let input_1 = Binary::from(i&0b10);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_and(tlwelv0_(input_0), tlwelv0_(input_1)))
+                let input_0_tlwe = tlwelv0_(input_0);
+                let input_1_tlwe = tlwelv0_(input_1);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_and(input_0_tlwe, input_1_tlwe))
             };4];
-
             let res = array![i=> {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
@@ -233,9 +235,10 @@ mod tests {
             let rep = array![ i => {
                 let input_0 = Binary::from(i&0b01);
                 let input_1 = Binary::from(i&0b10);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_or(tlwelv0_(input_0), tlwelv0_(input_1)))
+                let input_0_tlwe = tlwelv0_(input_0);
+                let input_1_tlwe = tlwelv0_(input_1);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_or(input_0_tlwe, input_1_tlwe))
             };4];
-
             let res = array![i=> {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
@@ -253,9 +256,10 @@ mod tests {
             let rep = array![ i => {
                 let input_0 = Binary::from(i&0b01);
                 let input_1 = Binary::from(i&0b10);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_xor(tlwelv0_(input_0), tlwelv0_(input_1)))
+                let input_0_tlwe = tlwelv0_(input_0);
+                let input_1_tlwe = tlwelv0_(input_1);
+                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_xor(input_0_tlwe, input_1_tlwe))
             };4];
-
             let res = array![i=> {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
@@ -272,9 +276,9 @@ mod tests {
             let title = "not";
             let rep = array![ i => {
                 let input = Binary::from(i&0b1);
-                timeit!(format!("{} {}",title, input),tfhe.hom_not(tlwelv0_(input)))
+                let input_tlwe = tlwelv0_(input);
+                timeit!(format!("{} {}",title, input),tfhe.hom_not(input_tlwe))
             };2];
-
             let res = array![i=> {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
