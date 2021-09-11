@@ -1,7 +1,7 @@
 use super::digest::{Crypto, Encryptable, Encrypted, Cryptor};
 use num::Zero;
 use std::ops::{Add, Mul, Neg, Sub};
-use utils::{math::{Binary, ModDistribution, Random, Torus}, torus, traits::AsLogic};
+use utils::{math::{Binary, ModDistribution, Random, Torus32}, torus, traits::AsLogic};
 
 pub struct TLWE<const N: usize>;
 macro_rules! tlwe_encryptable {
@@ -10,26 +10,26 @@ macro_rules! tlwe_encryptable {
     };
 }
 tlwe_encryptable!(Binary);
-tlwe_encryptable!(Torus);
+tlwe_encryptable!(Torus32);
 
 #[derive(Clone)]
 pub struct TLWERep<const N: usize> {
-    cipher: Torus,
-    p_key: [Torus; N],
+    cipher: Torus32,
+    p_key: [Torus32; N],
 }
-impl<const N: usize> Encrypted<Torus, [Torus; N]> for TLWERep<N> {
-    fn cipher(&self) -> &Torus {
+impl<const N: usize> Encrypted<Torus32, [Torus32; N]> for TLWERep<N> {
+    fn cipher(&self) -> &Torus32 {
         &self.cipher
     }
-    fn p_key(&self) -> &[Torus; N] {
+    fn p_key(&self) -> &[Torus32; N] {
         &self.p_key
     }
-    fn get_and_drop(self) -> (Torus, [Torus; N]) {
+    fn get_and_drop(self) -> (Torus32, [Torus32; N]) {
         (self.cipher, self.p_key)
     }
 }
 impl<const N: usize> TLWERep<N> {
-    pub fn new(cipher: Torus, p_key: [Torus; N]) -> Self {
+    pub fn new(cipher: Torus32, p_key: [Torus32; N]) -> Self {
         TLWERep { cipher, p_key }
     }
 
@@ -38,7 +38,7 @@ impl<const N: usize> TLWERep<N> {
         const IKS_L: usize = TLWEHelper::IKS_L;
 
         let (b_, a_) = self.get_and_drop();
-        let tlwe_init = TLWERep::new(b_, [Torus::zero(); M]);
+        let tlwe_init = TLWERep::new(b_, [Torus32::zero(); M]);
         let tlwe = a_.iter().enumerate().fold(tlwe_init, |tlwe, (i, &a_i)| {
             let a_i_decomp = a_i.decomposition_u32::<IKS_L>(BASEBIT);
             (0..IKS_L)
@@ -56,8 +56,8 @@ impl<const N: usize> TLWERep<N> {
     }
 
     #[inline]
-    pub fn trivial(text: Torus) -> Self {
-        TLWERep::new(text, [Torus::zero(); N])
+    pub fn trivial(text: Torus32) -> Self {
+        TLWERep::new(text, [Torus32::zero(); N])
     }
 }
 impl<const N: usize> AsLogic for TLWERep<N>{
@@ -117,7 +117,7 @@ impl<const N:usize> Neg for TLWERep<N>{
 }
 impl<const N: usize, Int: Copy> Mul<Int> for TLWERep<N>
 where
-    Torus: Mul<Int, Output = Torus>,
+    Torus32: Mul<Int, Output = Torus32>,
 {
     type Output = Self;
     fn mul(self, rhs: Int) -> Self::Output {
@@ -128,7 +128,7 @@ where
 }
 impl<const N: usize> Zero for TLWERep<N> {
     fn zero() -> Self {
-        TLWERep::new(Torus::zero(), [Torus::zero(); N])
+        TLWERep::new(Torus32::zero(), [Torus32::zero(); N])
     }
     fn is_zero(&self) -> bool {
         let TLWERep {
@@ -147,13 +147,13 @@ impl TLWEHelper {
     pub const IKS_L: usize = 8;
     pub const IKS_BASEBIT: u32 = 2;
     pub const IKS_T: usize = 2_usize.pow(Self::IKS_BASEBIT);
-    pub fn binary2torus(bin: Binary) -> Torus {
+    pub fn binary2torus(bin: Binary) -> Torus32 {
         torus!(match bin {
             Binary::One => 1.0 / 8.0,
             Binary::Zero => -1.0 / 8.0,
         })
     }
-    pub fn torus2binary(torus: Torus) -> Binary {
+    pub fn torus2binary(torus: Torus32) -> Binary {
         let f:f32 = torus.into();
         if f < 0.5 {
             Binary::One
@@ -175,34 +175,34 @@ impl<const N: usize> Crypto<Binary> for TLWE<N> {
         TLWEHelper::torus2binary(self.decrypto(s_key, rep))
     }
 }
-impl<const N: usize> Crypto<Torus> for TLWE<N> {
+impl<const N: usize> Crypto<Torus32> for TLWE<N> {
     type SecretKey = [Binary; N];
     type Representation = TLWERep<N>;
 
-    fn encrypto(&self, key: &Self::SecretKey, item: Torus) -> Self::Representation {
+    fn encrypto(&self, key: &Self::SecretKey, item: Torus32) -> Self::Representation {
         let mut unif = ModDistribution::uniform();
         let mut norm = ModDistribution::gaussian(TLWEHelper::ALPHA);
 
-        let a: [Torus; N] = unif.gen_n();
+        let a: [Torus32; N] = unif.gen_n();
         let m = item;
         let e = norm.gen();
         let b = a
             .iter()
             .zip(key.iter())
             .filter(|(_, &b)| b == Binary::One)
-            .fold(Torus::zero(), |s, (&x, _)| s + x)
+            .fold(Torus32::zero(), |s, (&x, _)| s + x)
             + e
             + m;
         TLWERep::new(b, a)
     }
 
-    fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Torus {
+    fn decrypto(&self, s_key: &Self::SecretKey, rep: Self::Representation) -> Torus32 {
         let (cipher, p_key) = rep.get_and_drop();
         let a_cross_s = p_key
             .iter()
             .zip(s_key.iter())
             .filter(|(_, &b)| b == Binary::One)
-            .fold(Torus::zero(), |s, (&x, _)| s + x);
+            .fold(Torus32::zero(), |s, (&x, _)| s + x);
         let m_with_e = cipher - a_cross_s;
 
         m_with_e
@@ -221,7 +221,7 @@ impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
         let culc_tlwe = |s_i: Binary, l: u32, t: u32| {
             let s_i: f32 = s_i.into();
             // t*s_i/2^{basebit * l}
-            let item:Torus = torus!(s_i * 0.5_f32.powi(BASEBIT * l as i32) * t as f32);
+            let item:Torus32 = torus!(s_i * 0.5_f32.powi(BASEBIT * l as i32) * t as f32);
             let tlwe = Cryptor::encrypto(TLWE, next_s_key, item);
             tlwe
         };

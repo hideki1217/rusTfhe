@@ -3,7 +3,7 @@ use crate::tlwe::KeySwitchingKey;
 use crate::trgsw::TRGSW;
 use crate::{digest::Encrypted, tlwe::TLWERep, trgsw::TRGSWRep, trlwe::TRLWERep};
 use num::ToPrimitive;
-use utils::math::{Binary, Polynomial, Torus};
+use utils::math::{Binary, Polynomial, Torus32};
 use utils::{pol, torus};
 
 pub struct TFHE<const TLWE_N: usize, const TRLWE_N: usize> {
@@ -300,6 +300,7 @@ mod tests {
     /// <2021/8/29>    400,571,320 ns/iter (+/- 40,190,736) // FloatとDecimalの変換を高速化
     /// <2021/8/31>    379,600,929 ns/iter (+/- 45,192,670) // 変換を簡略化
     /// <2021/9/4>     120,941,429 ns/iter (+/- 8,804,684)  // 逆FFTのタイミングをずらした
+    /// <2021/9/11>     77,693,595 ns/iter (+/- 30,553,478) // spqlios導入
     #[bench]
     //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {

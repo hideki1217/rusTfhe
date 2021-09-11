@@ -1,21 +1,19 @@
-use crate::mem;
+use crate::spqlios::Spqlios;
+use crate::{mem, spqlios::FrrSeries};
 use array_macro::array;
-use lazy_static::lazy_static;
 use num::{
     traits::{MulAdd, WrappingAdd, WrappingSub},
-    Float, Integer, One, ToPrimitive, Unsigned, Zero,
+    Complex, Float, Integer, One, ToPrimitive, Unsigned, Zero,
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use rustfft::{num_complex::Complex, Fft, FftNum, FftPlanner};
-use std::{ops::MulAssign, sync::RwLock};
+use std::convert::{From, Into};
+use std::{cell::RefCell, ops::Index};
 use std::{
     collections::HashMap,
-    f64::consts::PI,
     fmt::Display,
     mem::MaybeUninit,
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
-    sync::Arc,
 };
 
 //Macro
@@ -28,7 +26,7 @@ macro_rules! pol {
 #[macro_export]
 macro_rules! torus {
     ($e:expr) => {
-        Torus::from($e)
+        Torus32::from($e)
     };
 }
 
@@ -47,7 +45,7 @@ impl<T, const N: usize> Polynomial<T, N> {
     pub fn new(coeffis: [T; N]) -> Self {
         Polynomial(coeffis)
     }
-    pub fn coefficient(&self) -> &[T; N] {
+    pub fn coefs(&self) -> &[T; N] {
         &self.0
     }
     pub fn map<O, F: Fn(&T) -> O>(&self, f: F) -> Polynomial<O, N> {
@@ -57,6 +55,12 @@ impl<T, const N: usize> Polynomial<T, N> {
             .zip(arr.iter_mut())
             .for_each(|(t, x)| *x = MaybeUninit::new(f(t)));
         pol!(crate::mem::transmute::<_, [O; N]>(arr))
+    }
+}
+impl<T, const N: usize> Index<usize> for Polynomial<T, N> {
+    type Output = T;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
     }
 }
 impl<T: Copy, const N: usize> Polynomial<T, N> {
@@ -144,10 +148,10 @@ where
         b.iter_mut().enumerate().for_each(|(k, b_)| {
             *b_ = *b_
                 + if k < N - 1 {
-                    convolution(self.coefficient(), a.coefficient(), k)
-                        - convolution(self.coefficient(), a.coefficient(), k + N)
+                    convolution(self.coefs(), a.coefs(), k)
+                        - convolution(self.coefs(), a.coefs(), k + N)
                 } else {
-                    convolution(self.coefficient(), a.coefficient(), k)
+                    convolution(self.coefs(), a.coefs(), k)
                 };
         });
         b
@@ -200,11 +204,11 @@ impl<S: Copy, T: Sub<Output = T> + Copy + Zero + MulAdd<S, Output = T>, const N:
             // p(x)*q(x) = \sum_{s=0}^{2*(n-1)} \sum_{i=max(0,sum-(n-1))^{min(sum,n-1)} p_i * q_{sum-i} mod X^N+1
             if sum < N - 1 {
                 *arr_i = MaybeUninit::new(
-                    convolution(self.coefficient(), rhs.coefficient(), sum)
-                        - convolution(self.coefficient(), rhs.coefficient(), N + sum),
+                    convolution(self.coefs(), rhs.coefs(), sum)
+                        - convolution(self.coefs(), rhs.coefs(), N + sum),
                 );
             } else {
-                *arr_i = MaybeUninit::new(convolution(self.coefficient(), rhs.coefficient(), sum));
+                *arr_i = MaybeUninit::new(convolution(self.coefs(), rhs.coefs(), sum));
             }
         }
         Polynomial(mem::transmute::<_, [T; N]>(arr))
@@ -220,6 +224,47 @@ impl<T, const N: usize> Polynomial<T, N> {
         self.0.iter_mut()
     }
 }
+impl<const N: usize> From<&Polynomial<i32, N>> for FrrSeries<N> {
+    fn from(pol: &Polynomial<i32, N>) -> Self {
+        FFT_MAP.with(|m| m.borrow_mut().get_fft_proc(N).ifft_int(&pol.0))
+    }
+}
+impl<const N: usize> From<&Polynomial<Binary, N>> for FrrSeries<N> {
+    fn from(pol: &Polynomial<Binary, N>) -> Self {
+        let pol = array![i => pol[i] as i32;N];
+        FFT_MAP.with(|m| m.borrow_mut().get_fft_proc(N).ifft_int(&pol))
+    }
+}
+impl<const N: usize> From<&Polynomial<Torus32, N>> for FrrSeries<N> {
+    fn from(pol: &Polynomial<Torus32, N>) -> Self {
+        FFT_MAP.with(|m| m.borrow_mut().get_fft_proc(N).ifft_torus(&pol.0))
+    }
+}
+impl<const N: usize> From<&Polynomial<f64, N>> for FrrSeries<N> {
+    fn from(pol: &Polynomial<f64, N>) -> Self {
+        FFT_MAP.with(|m| m.borrow_mut().get_fft_proc(N).ifft(&pol.0))
+    }
+}
+impl<const N: usize> From<&FrrSeries<N>> for Polynomial<Torus32, N> {
+    fn from(s: &FrrSeries<N>) -> Self {
+        pol!(FFT_MAP.with(|m| m.borrow_mut().get_fft_proc(N).fft_torus(s)))
+    }
+}
+impl<const N: usize> From<FrrSeries<N>> for Polynomial<Torus32, N> {
+    fn from(s: FrrSeries<N>) -> Self {
+        Self::from(&s)
+    }
+}
+impl<const N: usize> From<&FrrSeries<N>> for Polynomial<f64, N> {
+    fn from(s: &FrrSeries<N>) -> Self {
+        pol!(FFT_MAP.with(|m| m.borrow_mut().get_fft_proc(N).fft(s)))
+    }
+}
+impl<const N: usize> From<FrrSeries<N>> for Polynomial<f64, N> {
+    fn from(s: FrrSeries<N>) -> Self {
+        Self::from(&s)
+    }
+}
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
     pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
         let res: [[i32; L]; N] = array![ i => {
@@ -230,184 +275,31 @@ impl<const N: usize> Polynomial<Decimal<u32>, N> {
         }; L]
     }
 }
-impl<T: Into<f64> + From<f64>, const N: usize> Polynomial<T, N> {
+impl<T, const N: usize> Polynomial<T, N> {
     /// # Panic
     /// - 'self.len() % 2 > 0'
-    pub fn fft_cross<S: Into<f64> + Copy>(&self, rhs: &Polynomial<S, N>) -> Self
+    pub fn fft_cross<'a, S>(&'a self, rhs: &'a Polynomial<S, N>) -> Self
     where
-        T: Copy,
-        [(); N / 2]: ,
+        FrrSeries<N>: From<&'a Polynomial<T, N>> + From<&'a Polynomial<S, N>>,
+        Polynomial<T, N>: From<FrrSeries<N>>,
     {
-        let n: f64 = N as f64;
-        let mut fft_map = FFT_MAP
-            .write()
-            .map_err(|_| "FFT_MAPが読み出しミス")
-            .unwrap();
-        let polfft = fft_map.get_fft_forward(N / 2);
-        // ある数列との要素積したものを用意
-        let mut l_buffer = array![i => Complex::new(self.coef_(i).into(),self.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
-        polfft.fft.process(&mut l_buffer);
-        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).into(), rhs.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
-        polfft.fft.process(&mut r_buffer);
+        let lhs_f = FrrSeries::<N>::from(self);
+        let rhs_f = FrrSeries::<N>::from(rhs);
         // 要素積
-        l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
-        let polifft = fft_map.get_fft_inverse(N / 2);
-        // 逆FFTで畳み込みに変換
-        polifft.fft.process(&mut l_buffer);
-        // 要素積の分補正
-        l_buffer
-            .iter_mut()
-            .zip(polifft.memo.iter())
-            .for_each(|(z, e_i)| *z *= e_i * 2.0 / n);
-        pol!(
-            array![ i => if i < N/2 { T::from(l_buffer[i].re) } else { T::from(l_buffer[i-N/2].im) } ;N]
-        )
-    }
-
-    pub fn fft_mul_add<S: Into<f64> + Copy>(
-        &self,
-        rhs: &Polynomial<S, N>,
-        mut s: Polynomial<T, N>,
-    ) -> Self
-    where
-        T: Add<Output = T> + Copy,
-        [(); N / 2]: ,
-    {
-        let n: f64 = N as f64;
-        let mut fft_map = FFT_MAP
-            .write()
-            .map_err(|_| "FFT_MAPが読み出しミス")
-            .unwrap();
-        let polfft = fft_map.get_fft_forward(N / 2);
-        // ある数列との要素積したものを用意
-        let mut l_buffer = array![i => Complex::new(self.coef_(i).into(),self.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
-        polfft.fft.process(&mut l_buffer);
-        let mut r_buffer = array![i => Complex::new( rhs.coef_(i).into(), rhs.coef_(i+N/2).into()) * unsafe {polfft.memo.get_unchecked(i)};N/2];
-        polfft.fft.process(&mut r_buffer);
-        // 要素積
-        l_buffer.iter_mut().zip(r_buffer).for_each(|(s, x)| *s *= x);
-        let polifft = fft_map.get_fft_inverse(N / 2);
-        // 逆FFTで畳み込みに変換
-        polifft.fft.process(&mut l_buffer);
-        // 要素積の分補正
-        l_buffer
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, z)| *z *= polifft.memo[i] * 2.0 / n);
-        s.iter_mut().enumerate().for_each(|(i, s_)| {
-            *s_ = *s_
-                + if i < N / 2 {
-                    T::from(l_buffer[i].re)
-                } else {
-                    T::from(l_buffer[i - N / 2].im)
-                }
-        });
-        s
+        let res_f = lhs_f.hadamard(&rhs_f);
+        res_f.into()
     }
 }
-pub fn get_fft(n: usize) -> Arc<PolFft<f64>> {
-    FFT_MAP
-        .write()
-        .map_err(|_| "FFT_MAP: error")
-        .unwrap()
-        .get_fft_forward(n)
+thread_local! {
+    pub static FFT_MAP: RefCell<FftMap> = Default::default();
 }
-pub fn get_ifft(n: usize) -> Arc<PolFft<f64>> {
-    FFT_MAP
-        .write()
-        .map_err(|_| "FFT_MAP: error")
-        .unwrap()
-        .get_fft_inverse(n)
-}
-lazy_static! {
-    static ref FFT_MAP: RwLock<FftMap<f64>> = RwLock::new(FftMap::new());
-}
-struct FftMap<T: FftNum> {
-    planner: FftPlanner<T>,
-    map_f: HashMap<usize, Arc<PolFft<T>>>, // for forward
-    map_i: HashMap<usize, Arc<PolFft<T>>>, // for inverse
-}
-unsafe impl<T: FftNum> Sync for FftMap<T> {} // FftMapはpanicしないはずで整合性が壊れることはない
-impl<T: FftNum + Float> FftMap<T> {
-    fn new() -> Self {
-        FftMap {
-            planner: FftPlanner::new(),
-            map_f: HashMap::new(),
-            map_i: HashMap::new(),
-        }
-    }
-    fn get_fft_forward(&mut self, n: usize) -> Arc<PolFft<T>> {
-        let item = self.map_f.get(&n);
-        match item {
-            Option::Some(polfft) => polfft.clone(),
-            Option::None => {
-                let fft_f = self.planner.plan_fft_forward(n);
-                let polfft = Arc::new(PolFft::new_forward(fft_f, n));
-                self.map_f.insert(n, polfft.clone());
-                polfft
-            }
-        }
-    }
-    fn get_fft_inverse(&mut self, n: usize) -> Arc<PolFft<T>> {
-        match self.map_i.get(&n) {
-            Option::Some(polfft) => polfft.clone(),
-            Option::None => {
-                let fft_i = self.planner.plan_fft_inverse(n);
-                let polfft = Arc::new(PolFft::new_inverse(fft_i, n));
-                self.map_i.insert(n, polfft.clone());
-                polfft
-            }
-        }
-    }
-}
-pub struct PolFft<T: FftNum> {
-    pub fft: Arc<dyn Fft<T>>,
-    pub memo: Vec<Complex<T>>,
-}
-impl<T: FftNum + Float> PolFft<T> {
-    pub fn new_inverse(fft: Arc<dyn Fft<T>>, n: usize) -> Self {
-        let mut memo = Vec::with_capacity(n);
-        for i in 0..n {
-            memo.push(Complex::from_polar(
-                T::one(),
-                -T::from_f64(PI).unwrap() * (T::from_usize(i).unwrap())
-                    / T::from_usize(2 * n).unwrap(),
-            ));
-        }
-        PolFft { fft, memo }
-    }
-    pub fn new_forward(fft: Arc<dyn Fft<T>>, n: usize) -> Self {
-        let mut memo = Vec::with_capacity(n);
-        for i in 0..n {
-            memo.push(Complex::from_polar(
-                T::one(),
-                T::from_f64(PI).unwrap() * (T::from_usize(i).unwrap())
-                    / T::from_usize(2 * n).unwrap(),
-            ));
-        }
-        PolFft { fft, memo }
-    }
-    pub fn prologue_to_cross<const N: usize, S: Into<T> + Copy>(
-        &self,
-        pol: &Polynomial<S, N>,
-    ) -> [Complex<T>; N / 2]
-    {
-        let mut buffer = array![i => Complex::new(pol.coef_(i).into(),pol.coef_(i+N/2).into()) * unsafe {self.memo.get_unchecked(i)};N/2];
-        self.fft.process(&mut buffer);
-        buffer
-    }
-    pub fn epilogue_to_cross<const N:usize,S:From<T>>(&self,mut l:[Complex<T>;N/2]) -> Polynomial<S,N>{
-        let half_n_inv:T = T::from_f64(2.0/ N as f64).unwrap();
-        // 逆FFTで畳み込みに変換
-        self.fft.process(&mut l);
-        // 要素積の分補正
-        l
-            .iter_mut()
-            .zip(self.memo.iter())
-            .for_each(|(z, e_i)| *z = *z * e_i * half_n_inv);
-        pol!(
-            array![ i => if i < N/2 { S::from(l[i].re) } else { S::from(l[i-N/2].im) } ;N]
-        )
+#[derive(Default)]
+pub struct FftMap(HashMap<usize, Spqlios>);
+impl FftMap {
+    pub fn get_fft_proc(&mut self, n: usize) -> &mut Spqlios {
+        self.0
+            .entry(n)
+            .or_insert_with(|| *Box::new(Spqlios::new(n)))
     }
 }
 
@@ -588,7 +480,7 @@ impl<U: Unsigned + Zero + WrappingAdd> Zero for Decimal<U> {
     }
 }
 // 以下 Torus
-pub type Torus = Decimal<u32>;
+pub type Torus32 = Decimal<u32>;
 impl Decimal<u32> {
     /// 2進表現から2^bits進表現に変換
     /// - res\[i\] in [-bg/2,bg/2) where bg = 2^bits
@@ -911,7 +803,7 @@ mod tests {
     }
     #[test]
     fn polynomial_fft_cross() {
-        let acc = 1e-12;
+        /*let acc = 1e-12;
 
         let l = pol!([1.0_f64, 3.0]);
         let r = pol!([2.0_f64, 3.0]);
@@ -937,41 +829,26 @@ mod tests {
         let expect = l.cross(&r);
         let res = l.fft_cross(&r);
         assert!(torus_range_eq(res.coef_(0), expect.coef_(0), 1e-6));
-        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));
-    }
-    #[test]
-    fn polynomial_fft_mul_add() {
-        let acc = 1e-12;
+        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));*/
 
-        let l = pol!([1.0_f64, 3.0]);
-        let r = pol!([2.0_f64, 3.0]);
-        let s = pol!([1.0_f64, 1.0]);
-        let expect = pol!([-6.0, 10.0]);
-        let res = l.fft_mul_add(&r, s);
-        pol_range_eq(&res, &expect, acc);
+        let mut unift = ModDistribution::uniform();
+        let mut unifb = BinaryDistribution::uniform();
+        const N: usize = 1024;
+        for _ in 0..10 {
+            let l = pol!(unift.gen_n::<N>());
+            let r = pol!(unifb.gen_n::<N>());
 
-        let l = pol!([1.0_f64; 6]);
-        let r = pol!([4.0_f64; 6]);
-        let s = pol!([1.0_f64; 6]);
-        let expect = l.mul_add(&r, s.clone());
-        let res = l.fft_mul_add(&r, s);
-        pol_range_eq(&res, &expect, acc);
-
-        let l = pol!([torus!(0.5), torus!(0.25)]);
-        let r = pol!([3, 2]);
-        let s = pol!([torus!(0.125), torus!(0.125)]);
-        let expect = l.mul_add(&r, s);
-        let res = l.fft_mul_add(&r, s);
-        assert!(torus_range_eq(res.coef_(0), expect.coef_(0), 1e-6));
-        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));
-
-        let l = pol!([torus!(0.5), torus!(0.25)]);
-        let r = pol!([Binary::Zero, Binary::One]);
-        let s = pol!([torus!(0.125), torus!(0.125)]);
-        let expect = l.mul_add(&r, s);
-        let res = l.fft_mul_add(&r, s);
-        assert!(torus_range_eq(res.coef_(0), expect.coef_(0), 1e-6));
-        assert!(torus_range_eq(res.coef_(1), expect.coef_(1), 1e-6));
+            let result = l.fft_cross(&r);
+            let expect = l.cross(&r);
+            for i in 0..N {
+                assert!(
+                    torus_range_eq(result.coef_(i), expect.coef_(i), 1e-6),
+                    "fft_cross = {:?},expect = {:?}",
+                    result,
+                    expect
+                );
+            }
+        }
     }
 
     #[test]
@@ -1312,11 +1189,12 @@ mod tests {
         };
         acc > diff
     }
-    fn torus_range_eq(result: Torus, expect: Torus, acc: f32) -> bool {
+    fn torus_range_eq(result: Torus32, expect: Torus32, acc: f32) -> bool {
         let result: f32 = result.into();
         let expect: f32 = expect.into();
         (result - expect).abs().min((result + expect - 1.0).abs()) < acc
     }
+    #[allow(dead_code)]
     fn pol_range_eq<T, const N: usize>(result: &Polynomial<T, N>, expect: &Polynomial<T, N>, acc: T)
     where
         T: PartialOrd + Sub<Output = T> + Copy + std::fmt::Debug,

@@ -7,10 +7,10 @@ use nander::{eval_logic_expr, parse_logic_expr, Logip};
 use std::io::{self, BufRead, Write};
 use utils::math::{Binary, BinaryDistribution, Random};
 
-fn nander_console<P, CREATE_P, CONVERT>(
-    f: CREATE_P,
+fn nander_console<P, CreateP, CONVERT>(
+    f: CreateP,
     g: CONVERT,
-) where P: Logip, CREATE_P: Fn() -> P, CONVERT: Fn(P::R) -> Binary {
+) where P: Logip, CreateP: Fn() -> P, CONVERT: Fn(P::R) -> Binary {
     println!("Hello nander!!");
     println!("[Rule]1:true,0:false,&:and,$:nand,!:not,|:or,^:xor");
     println!("[Example]");
