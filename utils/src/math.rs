@@ -7,7 +7,6 @@ use num::{
 };
 use rand::{prelude::ThreadRng, Rng};
 use rand_distr::{Distribution, Normal, Uniform};
-use std::convert::{From, Into};
 use std::{cell::RefCell, ops::Index};
 use std::{
     collections::HashMap,
@@ -485,7 +484,7 @@ impl Decimal<u32> {
     /// 2進表現から2^bits進表現に変換
     /// - res\[i\] in [-bg/2,bg/2) where bg = 2^bits
     /// - N=u32::BITSを2^bitsで表現したときの有効桁数
-    pub fn decomposition_i32<const L: usize>(self, bits: u32) -> [i32; L] {
+    pub fn decomposition_i32<const L: usize>(self,bits:u32) -> [i32; L] {
         let mut u_res = self.decomposition_u32::<L>(bits);
         // res={a_i}, a_i in [-bg/2,bg/2)
         let bg = 1 << bits;

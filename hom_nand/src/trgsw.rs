@@ -7,12 +7,12 @@ use num::{ToPrimitive, Zero};
 use std::mem::MaybeUninit;
 use utils::math::{Binary, Cross, Polynomial, Torus32};
 use utils::spqlios::FrrSeries;
-use utils::{pol, torus};
+use utils::torus;
 
 pub struct TRGSW<const N: usize>;
 macro_rules! trgsw_encryptable {
     ($t:ty) => {
-        impl<const N: usize> Encryptable<TRGSW<N>> for $t where [(); N / 2]:  {}
+        impl<const N: usize> Encryptable<TRGSW<N>> for $t {}
     };
 }
 trgsw_encryptable!(Polynomial<u32, N>);
@@ -54,6 +54,49 @@ impl<const N: usize> TRGSWRep<N> {
         TRGSWRep { cipher, p_key }
     }
 }
+pub struct TRGSWRepF<const N:usize>{
+    cipher_f: [FrrSeries<N>;TRGSWHelper::L * 2],
+    pkey_f: [FrrSeries<N>;TRGSWHelper::L * 2],
+}
+impl<const N:usize> From<&TRGSWRep<N>> for TRGSWRepF<N> {
+    fn from(t: &TRGSWRep<N>) -> Self {
+        let cipher_f = array![i => FrrSeries::<N>::from(&t.cipher()[i]) ;TRGSWHelper::L*2];
+        let pkey_f = array![i => FrrSeries::<N>::from(&t.p_key()[i]) ;TRGSWHelper::L*2];
+        TRGSWRepF { cipher_f, pkey_f }
+    }
+}
+impl<const N:usize> From<TRGSWRep<N>> for TRGSWRepF<N> {
+    fn from(t: TRGSWRep<N>) -> Self {
+        Self::from(&t)
+    }
+}
+impl<const N:usize> TRGSWRepF<N>{
+    #[allow(dead_code)]
+    fn cipher_f(&self) -> &[FrrSeries<N>; 2 * TRGSWHelper::L] {
+        &self.cipher_f
+    }
+    #[allow(dead_code)]
+    fn p_key(&self) -> &[FrrSeries<N>; 2 * TRGSWHelper::L] {
+        &self.pkey_f
+    }
+    fn get_ref(
+        &self,
+    ) -> (
+        &[FrrSeries<N>; 2 * TRGSWHelper::L],
+        &[FrrSeries<N>; 2 * TRGSWHelper::L],
+    ) {
+        (&self.cipher_f, &self.pkey_f)
+    }
+    #[allow(dead_code)]
+    fn get_and_drop(
+        self,
+    ) -> (
+        [FrrSeries<N>; 2 * TRGSWHelper::L],
+        [FrrSeries<N>; 2 * TRGSWHelper::L],
+    ) {
+        (self.cipher_f, self.pkey_f)
+    }
+}
 
 pub struct TRGSWHelper;
 impl TRGSWHelper {
@@ -65,10 +108,7 @@ impl TRGSWHelper {
 impl<const N: usize> TRGSW<N> {
     fn create_zero_encrypted_pols<const M: usize>(
         s_key: &<TRGSW<N> as Crypto<Polynomial<i32, N>>>::SecretKey,
-    ) -> ([Polynomial<Torus32, N>; M], [Polynomial<Torus32, N>; M])
-    where
-        [(); N / 2]: ,
-    {
+    ) -> ([Polynomial<Torus32, N>; M], [Polynomial<Torus32, N>; M]) {
         let mut cipher: [MaybeUninit<Polynomial<Torus32, N>>; M] =
             unsafe { MaybeUninit::uninit().assume_init() };
         let mut p_key: [MaybeUninit<Polynomial<Torus32, N>>; M] =
@@ -89,10 +129,7 @@ impl<const N: usize> TRGSW<N> {
     }
 }
 
-impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N>
-where
-    [(); N / 2]: ,
-{
+impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRGSWRep<N>;
 
@@ -130,10 +167,7 @@ where
         })
     }
 }
-impl<const N: usize> Crypto<Polynomial<u32, N>> for TRGSW<N>
-where
-    [(); N / 2]: ,
-{
+impl<const N: usize> Crypto<Polynomial<u32, N>> for TRGSW<N> {
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRGSWRep<N>;
 
@@ -146,10 +180,7 @@ where
         res.map(|&x| x as u32)
     }
 }
-impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRGSW<N>
-where
-    [(); N / 2]: ,
-{
+impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRGSW<N> {
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRGSWRep<N>;
 
@@ -170,10 +201,7 @@ where
         res.map(|&x| Binary::from(x))
     }
 }
-impl<const N: usize> Crypto<i32> for TRGSW<N>
-where
-    [(); N / 2]: ,
-{
+impl<const N: usize> Crypto<i32> for TRGSW<N> {
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRGSWRep<N>;
 
@@ -210,10 +238,7 @@ where
         }
     }
 }
-impl<const N: usize> Crypto<Binary> for TRGSW<N>
-where
-    [(); N / 2]: ,
-{
+impl<const N: usize> Crypto<Binary> for TRGSW<N> {
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRGSWRep<N>;
 
@@ -227,10 +252,7 @@ where
     }
 }
 
-impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRep<N>
-where
-    [(); N / 2]: ,
-{
+impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRepF<N> {
     type Output = TRLWERep<N>;
 
     fn cross(&self, rhs: &TRLWERep<N>) -> Self::Output {
@@ -238,54 +260,56 @@ where
         const BGBIT: u32 = TRGSWHelper::BGBIT;
         let b_decomp = rhs.cipher().decomposition::<L>(BGBIT);
         let a_decomp = rhs.p_key().decomposition::<L>(BGBIT);
-        let (b_trgsw, a_trgsw) = self.get_ref();
+        let (b_trgsw_f, a_trgsw_f) = self.get_ref();
 
-        let (cipher, p_key) = utils::math::FFT_MAP.with(|m| {
-            let mut m = m.borrow_mut();
-            let fft_proc = m.get_fft_proc(N);
+        let b_decomp_f = array![i => FrrSeries::<N>::from(&b_decomp[i]);L];
+        let a_decomp_f = array![i => FrrSeries::<N>::from(&a_decomp[i]);L];
 
-            let b_decomp_f = array![i => fft_proc.ifft_int(&b_decomp[i].coefs());L];
-            let a_decomp_f = array![i => fft_proc.ifft_int(&a_decomp[i].coefs());L];
-
-            // (cipher,p_key) = C*(b,a) = (b.decomp[0],..,,a.decomp[0],..)*(b_trgsw,a_trgsw)
-            let cipher_f = (0..L).fold(FrrSeries::zero(), |mut s, i| {
-                // let s = b_trgsw[i].fft_mul_add(&b_decomp[i], s);
-                // let s = b_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
-                let b_trgsw_i_f = fft_proc.ifft_torus(&b_trgsw[i].coefs());
-                let b_trgsw_i_plus_l_f = fft_proc.ifft_torus(&b_trgsw[i + L].coefs());
-                s = s
-                    + b_trgsw_i_f.hadamard(&b_decomp_f[i])
-                    + b_trgsw_i_plus_l_f.hadamard(&a_decomp_f[i]);
-                s
-            });
-            let p_key_f = (0..L).fold(FrrSeries::zero(), |mut s, i| {
-                //let s = a_trgsw[i].fft_mul_add(&b_decomp[i], s);
-                //let s = a_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
-                let a_trgsw_i_f = fft_proc.ifft_torus(&a_trgsw[i].coefs());
-                let a_trgsw_i_plus_l_f = fft_proc.ifft_torus(&a_trgsw[i + L].coefs());
-                s = s
-                    + a_trgsw_i_f.hadamard(&b_decomp_f[i])
-                    + a_trgsw_i_plus_l_f.hadamard(&a_decomp_f[i]);
-                s
-            });
-
-            let cipher: Polynomial<Torus32, N> = pol!(fft_proc.fft_torus(&cipher_f));
-            let p_key: Polynomial<Torus32, N> = pol!(fft_proc.fft_torus(&p_key_f));
-            (cipher, p_key)
+        // (cipher,p_key) = C*(b,a) = (b.decomp[0],..,,a.decomp[0],..)*(b_trgsw,a_trgsw)
+        let cipher_f = (0..L).fold(FrrSeries::zero(), |mut s, i| {
+            // let s = b_trgsw[i].fft_mul_add(&b_decomp[i], s);
+            // let s = b_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
+            s = s
+                + b_trgsw_f[i].hadamard(&b_decomp_f[i])
+                + b_trgsw_f[i+L].hadamard(&a_decomp_f[i]);
+            s
         });
+        let p_key_f = (0..L).fold(FrrSeries::zero(), |mut s, i| {
+            //let s = a_trgsw[i].fft_mul_add(&b_decomp[i], s);
+            //let s = a_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
+            s = s
+                + a_trgsw_f[i].hadamard(&b_decomp_f[i])
+                + a_trgsw_f[i+L].hadamard(&a_decomp_f[i]);
+            s
+        });
+
+        let cipher: Polynomial<Torus32, N> = Polynomial::<Torus32, N>::from(cipher_f);
+        let p_key: Polynomial<Torus32, N> = Polynomial::<Torus32, N>::from(p_key_f);
 
         TRLWERep::new(cipher, p_key)
     }
 }
+impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRep<N> {
+    type Output = TRLWERep<N>;
 
+    fn cross(&self, rhs: &TRLWERep<N>) -> Self::Output {
+        TRGSWRepF::<N>::from(self).cross(rhs)
+    }
+}
+
+impl<const N: usize> TRGSWRepF<N> {
+    /// # Sample
+    /// let i: Binary;
+    /// TRGSW(i).cmux(rep_1,rep_0) = rep_i;
+    pub fn cmux(&self, rep_1: TRLWERep<N>, rep_0: TRLWERep<N>) -> TRLWERep<N> {
+        self.cross(&(rep_1 - &rep_0)) + rep_0
+    }
+}
 impl<const N: usize> TRGSWRep<N> {
     /// # Sample
     /// let i: Binary;
     /// TRGSW(i).cmux(rep_1,rep_0) = rep_i;
-    pub fn cmux(&self, rep_1: TRLWERep<N>, rep_0: TRLWERep<N>) -> TRLWERep<N>
-    where
-        [(); N / 2]: ,
-    {
+    pub fn cmux(&self, rep_1: TRLWERep<N>, rep_0: TRLWERep<N>) -> TRLWERep<N> {
         self.cross(&(rep_1 - &rep_0)) + rep_0
     }
 }
@@ -311,7 +335,7 @@ mod tests {
         let res: Polynomial<u32, N> = Cryptor::decrypto(TRGSW, &s_key, rep);
         assert_eq!(pol, res);
 
-        let pol= pol!(array![ i => 1 - 2*(i as i32 %2);N]);
+        let pol = pol!(array![ i => 1 - 2*(i as i32 %2);N]);
         let rep = Cryptor::encrypto(TRGSW::<N>, &s_key, pol.clone());
         let res: Polynomial<i32, N> = Cryptor::decrypto(TRGSW, &s_key, rep);
         assert_eq!(pol, res);
@@ -324,13 +348,12 @@ mod tests {
 
     #[test]
     fn trgsw_cross() {
-
         {
             const N: usize = TRLWEHelper::N;
             let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
             let item: i32 = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
-            let expect= pol!(array![ i => if i%2 ==0 { torus!(0.5) } else { torus!(0.25) };N]);
+            let expect = pol!(array![ i => if i%2 ==0 { torus!(0.5) } else { torus!(0.25) };N]);
             let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, expect));
             let actual: Polynomial<Torus32, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {

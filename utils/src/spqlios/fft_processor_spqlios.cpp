@@ -183,7 +183,7 @@ void FFT_Processor_Spqlios::execute_direct_torus32(Torus32 *res, const double *a
 }
 
 FFT_Processor_Spqlios::~FFT_Processor_Spqlios() {
-    delete (tables_direct);
-    delete (tables_reverse);
+    //delete (tables_direct);
+    //delete (tables_reverse);
 }
 

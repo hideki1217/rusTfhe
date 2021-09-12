@@ -54,12 +54,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lazy_static"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
-
-[[package]]
 name = "libc"
 version = "0.2.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -75,6 +69,7 @@ checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 name = "nander"
 version = "0.1.0"
 dependencies = [
+ "array-macro",
  "hom_nand",
  "utils",
 ]
@@ -218,7 +213,6 @@ version = "0.1.0"
 dependencies = [
  "array-macro",
  "cc",
- "lazy_static",
  "num",
  "rand",
  "rand_distr",

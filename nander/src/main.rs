@@ -1,12 +1,18 @@
+
 use hom_nand::{
     digest::Cryptor,
     tfhe::{TFHEHelper, TFHE},
     tlwe::{TLWEHelper, TLWERep, TLWE},
 };
-use nander::{eval_logic_expr, parse_logic_expr, Logip};
-use std::io::{self, BufRead, Write};
-use utils::math::{Binary, BinaryDistribution, Random};
+use nander::{Logip, eval_logic_expr, parse_logic_expr};
+use std::{array, io::{self, BufRead, Write}};
+use utils::{math::{Binary, BinaryDistribution, Random}, timeit};
 
+#[cfg(feature="profile")]
+use nander::hom_nand_prof;
+
+
+#[cfg(not(feature="profile"))]
 fn nander_console<P, CreateP, CONVERT>(
     f: CreateP,
     g: CONVERT,
@@ -56,6 +62,13 @@ fn nander_console<P, CreateP, CONVERT>(
         }
     }
 }
+
+#[cfg(feature="profile")]
+fn main() {
+    hom_nand_prof();
+}
+
+#[cfg(not(feature="profile"))]
 fn main() {
     const TLWE_N: usize = TLWEHelper::N;
     const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;
@@ -64,6 +77,15 @@ fn main() {
     let s_key_tlwelv1 = unif.gen_n::<TRLWE_N>();
     let create_tfhe = || TFHE::new(s_key_tlwelv0, s_key_tlwelv1);
     let convert = |rep: TLWERep<TLWE_N>| Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep);
-    
+
     nander_console(create_tfhe, convert);
 }
+
+/* 
+fn sample<P,Convert>(p:P,f:Convert) -> i32 where P:Trait,Convert:Fn(P::R)->i32 {
+    f(p.func())
+}
+fn main() {
+    let t = TraitImpl::<10>(4);
+    sample(t,|x|x.0);
+}*/

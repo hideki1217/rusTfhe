@@ -1,7 +1,7 @@
 use crate::digest::Cryptor;
 use crate::tlwe::KeySwitchingKey;
 use crate::trgsw::TRGSW;
-use crate::{digest::Encrypted, tlwe::TLWERep, trgsw::TRGSWRep, trlwe::TRLWERep};
+use crate::{digest::Encrypted, tlwe::TLWERep, trgsw::TRGSWRepF, trlwe::TRLWERep};
 use num::ToPrimitive;
 use utils::math::{Binary, Polynomial, Torus32};
 use utils::{pol, torus};
@@ -18,10 +18,7 @@ impl TFHEHelper {
 }
 
 impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
-    pub fn new(s_key_tlwelv0: [Binary; TLWE_N], s_key_tlwelv1: [Binary; TRLWE_N]) -> Self
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    pub fn new(s_key_tlwelv0: [Binary; TLWE_N], s_key_tlwelv1: [Binary; TRLWE_N]) -> Self {
         let ksk = KeySwitchingKey::new(s_key_tlwelv1, &s_key_tlwelv0);
         let bk = BootstrappingKey::new(s_key_tlwelv0, &pol!(s_key_tlwelv1));
         TFHE { bk, ksk }
@@ -32,58 +29,44 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         control: TLWERep<TLWE_N>,
         input_0: TLWERep<TLWE_N>,
         input_1: TLWERep<TLWE_N>,
-    ) -> TLWERep<TLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    ) -> TLWERep<TLWE_N> {
         let i_1 = self.hom_and(control.clone(), input_1);
         let i_0 = self.hom_and(-control, input_0);
-        Self::bootstrap(i_1+i_0+TLWERep::trivial(torus!(TFHEHelper::COEF)), &self.bk, &self.ksk)
+        Self::bootstrap(
+            i_1 + i_0 + TLWERep::trivial(torus!(TFHEHelper::COEF)),
+            &self.bk,
+            &self.ksk,
+        )
     }
-    pub fn hom_nand(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    pub fn hom_nand(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N> {
         Self::bootstrap(
             TLWERep::trivial(torus!(TFHEHelper::COEF)) - (input_0 + input_1),
             &self.bk,
             &self.ksk,
         )
     }
-    pub fn hom_and(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    pub fn hom_and(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N> {
         Self::bootstrap(
             (input_0 + input_1) - TLWERep::trivial(torus!(TFHEHelper::COEF)),
             &self.bk,
             &self.ksk,
         )
     }
-    pub fn hom_or(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    pub fn hom_or(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N> {
         Self::bootstrap(
             (input_0 + input_1) + TLWERep::trivial(torus!(TFHEHelper::COEF)),
             &self.bk,
             &self.ksk,
         )
     }
-    pub fn hom_xor(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    pub fn hom_xor(&self, input_0: TLWERep<TLWE_N>, input_1: TLWERep<TLWE_N>) -> TLWERep<TLWE_N> {
         Self::bootstrap(
             (input_0 + input_1) * 2 + TLWERep::trivial(torus!(2.0 * TFHEHelper::COEF)),
             &self.bk,
             &self.ksk,
         )
     }
-    pub fn hom_not(&self, input: TLWERep<TLWE_N>) -> TLWERep<TLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    pub fn hom_not(&self, input: TLWERep<TLWE_N>) -> TLWERep<TLWE_N> {
         Self::bootstrap(-input, &self.bk, &self.ksk)
     }
 
@@ -91,20 +74,14 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         tlwelv0: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
         ks: &KeySwitchingKey<TRLWE_N, TLWE_N>,
-    ) -> TLWERep<TLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    ) -> TLWERep<TLWE_N> {
         let tlwelv1 = Self::gate_bootstrapping_tlwe2tlwe(tlwelv0, bk);
         tlwelv1.identity_key_switch(ks)
     }
     fn gate_bootstrapping_tlwe2tlwe(
         rep_tlwe: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
-    ) -> TLWERep<TRLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    ) -> TLWERep<TRLWE_N> {
         let testvec = TRLWERep::trivial_one(pol!([torus!(TFHEHelper::COEF); TRLWE_N]));
         let trlwe = TFHE::blind_rotate(rep_tlwe, bk, testvec);
         trlwe.sample_extract_index(0)
@@ -113,10 +90,7 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         rep_tlwe: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
         base: TRLWERep<TRLWE_N>,
-    ) -> TRLWERep<TRLWE_N>
-    where
-        [(); TRLWE_N / 2]: ,
-    {
+    ) -> TRLWERep<TRLWE_N> {
         const NBIT: u32 = TFHEHelper::NBIT;
         const BITS: u32 = u32::BITS;
         let (b, a) = rep_tlwe.get_and_drop();
@@ -137,25 +111,23 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
     }
 }
 
-pub struct BootstrappingKey<const PRE_N: usize, const N: usize>(Vec<TRGSWRep<N>>);
+pub struct BootstrappingKey<const PRE_N: usize, const N: usize>(Vec<TRGSWRepF<N>>);
 
 impl<const PRE_N: usize, const N: usize> BootstrappingKey<PRE_N, N> {
-    pub fn new(s_key_tlwe: [Binary; PRE_N], s_key: &Polynomial<Binary, N>) -> Self
-    where
-        [(); N / 2]: ,
-    {
-        let mut vec = Vec::<TRGSWRep<N>>::with_capacity(PRE_N);
+    pub fn new(s_key_tlwe: [Binary; PRE_N], s_key: &Polynomial<Binary, N>) -> Self {
+        let mut vec = Vec::<TRGSWRepF<N>>::with_capacity(PRE_N);
         for s_i in s_key_tlwe {
-            vec.push(Cryptor::encrypto(TRGSW, s_key, s_i));
+            let trgsw_ = Cryptor::encrypto(TRGSW, s_key, s_i);
+            vec.push(TRGSWRepF::<N>::from(trgsw_));
         }
         BootstrappingKey(vec)
     }
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, TRGSWRep<N>> {
+    pub fn iter(&self) -> std::slice::Iter<'_, TRGSWRepF<N>> {
         self.0.iter()
     }
     #[inline]
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, TRGSWRep<N>> {
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, TRGSWRepF<N>> {
         self.0.iter_mut()
     }
 }
@@ -293,14 +265,15 @@ mod tests {
         }
     }
 
-    /// <2021/8/24> 15,593,340,479 ns/iter (+/- 4,537,182,672)
-    /// <2021/8/25>  1,698,811,866 ns/iter (+/- 192,033,341) // FFT導入
-    /// <2021/8/25>  1,643,367,136 ns/iter (+/- 686,612,125) // FFT_MAPを導入
-    /// <2021/8/28>  1,500,582,227 ns/iter (+/- 39,434,083) // 事前計算を導入
-    /// <2021/8/29>    400,571,320 ns/iter (+/- 40,190,736) // FloatとDecimalの変換を高速化
-    /// <2021/8/31>    379,600,929 ns/iter (+/- 45,192,670) // 変換を簡略化
-    /// <2021/9/4>     120,941,429 ns/iter (+/- 8,804,684)  // 逆FFTのタイミングをずらした
-    /// <2021/9/11>     77,693,595 ns/iter (+/- 30,553,478) // spqlios導入
+    /// - <2021/8/24> 15,593,340,479 ns/iter (+/- 4,537,182,672)
+    /// - <2021/8/25>  1,698,811,866 ns/iter (+/- 192,033,341) // FFT導入
+    /// - <2021/8/25>  1,643,367,136 ns/iter (+/- 686,612,125) // FFT_MAPを導入
+    /// - <2021/8/28>  1,500,582,227 ns/iter (+/- 39,434,083) // 事前計算を導入
+    /// - <2021/8/29>    400,571,320 ns/iter (+/- 40,190,736) // FloatとDecimalの変換を高速化
+    /// - <2021/8/31>    379,600,929 ns/iter (+/- 45,192,670) // 変換を簡略化
+    /// - <2021/9/4>     120,941,429 ns/iter (+/- 8,804,684)  // 逆FFTのタイミングをずらした
+    /// - <2021/9/11>     77,693,595 ns/iter (+/- 30,553,478) // spqlios導入
+    /// - <2021/9/11>     63,989,293 ns/iter (+/- 25,612,018) // BootStrappingKeyに事前計算を導入
     #[bench]
     //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {

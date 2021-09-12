@@ -115,7 +115,7 @@ impl<const N:usize> Neg for TLWERep<N>{
         TLWERep::new(b,a)
     }
 }
-impl<const N: usize, Int: Copy> Mul<Int> for TLWERep<N>
+impl<Int: Copy,const N: usize> Mul<Int> for TLWERep<N>
 where
     Torus32: Mul<Int, Output = Torus32>,
 {

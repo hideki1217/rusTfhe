@@ -8,7 +8,7 @@ use utils::{math::{Binary, ModDistribution, Polynomial, Random, Torus32}, pol, t
 pub struct TRLWE<const N: usize>;
 macro_rules! trlwe_encryptable {
     ($t:ty) => {
-        impl<const N: usize> Encryptable<TRLWE<N>> for $t where [(); N / 2]:  {}
+        impl<const N: usize> Encryptable<TRLWE<N>> for $t {}
     };
 }
 trlwe_encryptable!(Polynomial<Torus32, N>);
@@ -117,8 +117,6 @@ impl<const N: usize> TRLWERep<N> {
     }
 }
 impl<const N: usize> Crypto<Polynomial<Torus32, N>> for TRLWE<N>
-where
-    [(); N / 2]: ,
 {
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRLWERep<N>;
@@ -142,8 +140,6 @@ where
     }
 }
 impl<const N: usize> Crypto<Polynomial<Binary, N>> for TRLWE<N>
-where
-    [(); N / 2]: ,
 {
     type SecretKey = Polynomial<Binary, N>;
     type Representation = TRLWERep<N>;

@@ -1,5 +1,5 @@
-#![feature(const_generics)]
-#![feature(const_evaluatable_checked)]
+#![feature(adt_const_params)]
+#![feature(generic_const_exprs)]
 #![feature(test)]
 extern crate test;
 extern crate debug_print;
