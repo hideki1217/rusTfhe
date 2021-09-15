@@ -160,7 +160,7 @@ impl<const N: usize> Add for FrrSeries<N> {
 }
 impl<const N:usize> AddAssign<&Self> for FrrSeries<N> {
     fn add_assign(&mut self, rhs: &Self) {
-        self.0.iter_mut().zip(rhs.0).for_each(|(a, b)| *a += b);
+        self.0.iter_mut().zip(rhs.0.iter()).for_each(|(a, b)| *a += b);
     }
 }
 impl<const N:usize> AddAssign<Self> for FrrSeries<N> {
@@ -183,7 +183,7 @@ impl<const N: usize> Sub for FrrSeries<N> {
 }
 impl<const N:usize> SubAssign<&Self> for FrrSeries<N> {
     fn sub_assign(&mut self, rhs: &Self) {
-        self.0.iter_mut().zip(rhs.0).for_each(|(a, b)| *a -= b);
+        self.0.iter_mut().zip(rhs.0.iter()).for_each(|(a, b)| *a -= b);
     }
 }
 impl<const N:usize> SubAssign<Self> for FrrSeries<N> {

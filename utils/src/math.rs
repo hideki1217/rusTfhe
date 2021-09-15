@@ -72,10 +72,12 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
     /// # Expamle
     /// ```
     /// use utils::{pol,math::Polynomial};
-    /// assert_eq!(pol!([1,2,3]).rotate(1),pol!([-3,1,2]));
-    /// assert_eq!(pol!([1,2,3]).rotate(-1),pol!([2,3,-1]));
-    /// assert_eq!(pol!([1,2,3]).rotate(3),pol!([-1,-2,-3]));
-    /// assert_eq!(pol!([1,2,3]).rotate(6),pol!([1,2,3]));
+    /// assert_eq!(pol!([1,2,3,4,5]).rotate(1),pol!([-5,1,2,3,4]));
+    /// assert_eq!(pol!([1,2,3,4,5]).rotate(-1),pol!([2,3,4,5,-1]));
+    /// assert_eq!(pol!([1,2,3,4,5]).rotate(5),pol!([-1,-2,-3,-4,-5]));
+    /// assert_eq!(pol!([1,2,3,4,5]).rotate(-4),pol!([5,-1,-2,-3,-4]));
+    /// assert_eq!(pol!([1,2,3,4,5]).rotate(-8),pol!([1,2,3,4,5]).rotate(2));
+    /// assert_eq!(pol!([1,2,3,4,5]).rotate(10),pol!([1,2,3,4,5]));
     /// ```
     pub fn rotate(&self, n: i32) -> Self {
         let n = n.mod_floor(&(2 * N as i32)) as usize;
@@ -87,13 +89,31 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
             arr_m.iter_mut().zip(coef_m.iter().map(|&t| -t)).for_each(|(x,c)| *x = MaybeUninit::new(c));
             arr_p.iter_mut().zip(coef_p.iter()).for_each(|(x,&c)| *x = MaybeUninit::new(c));
         } else {
-            let n: usize = (2 * N - n) as usize;
-            let (arr_m,arr_p) = arr.split_at_mut(n);
-            let (coef_p,coef_m) = self.coefs().split_at(N-n);
+            let n: usize = n as usize - N;
+            let (arr_p,arr_m) = arr.split_at_mut(n);
+            let (coef_m,coef_p) = self.coefs().split_at(N-n);
             arr_m.iter_mut().zip(coef_m.iter().map(|&t| -t)).for_each(|(x,c)| *x = MaybeUninit::new(c));
             arr_p.iter_mut().zip(coef_p.iter()).for_each(|(x,&c)| *x = MaybeUninit::new(c));
         }
         pol!(mem::transmute(arr))
+        /* 
+        let n = n.mod_floor(&(2 * N as i32)) as usize;
+        if n <= N {
+            let n: usize = n as usize;
+            pol!(mem::array_create_enumerate(|i| if i < n {
+                -self.coef_(N + i - n)
+            } else {
+                self.coef_(i - n)
+            }))
+        } else {
+            let n: usize = (2 * N - n) as usize;
+            pol!(mem::array_create_enumerate(|i| if i + n >= N {
+                -self.coef_(i + n - N)
+            } else {
+                self.coef_(n + i)
+            }))
+        }
+        */
     }
 }
 impl<T: AddAssign + Copy, const N: usize> Polynomial<T, N> {
@@ -916,9 +936,9 @@ mod tests {
             for i in 0..N {
                 assert!(
                     torus_range_eq(result.coef_(i), expect.coef_(i), 1e-6),
-                    "fft_cross = {:?},expect = {:?}",
-                    result,
-                    expect
+                    "fft_cross[i] = {:?},expect[i] = {:?}",
+                    result.coefs()[i],
+                    expect.coefs()[i]
                 );
             }
         }
