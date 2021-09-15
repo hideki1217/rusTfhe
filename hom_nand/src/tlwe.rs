@@ -1,7 +1,11 @@
 use super::digest::{Crypto, Cryptor, Encryptable, Encrypted};
 use num::Zero;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
-use utils::{math::{Binary, ModDistribution, Random, Torus32}, mem, torus, traits::AsLogic};
+use utils::{
+    math::{Binary, ModDistribution, Random, Torus32},
+    mem, torus,
+    traits::AsLogic,
+};
 
 pub struct TLWE<const N: usize>;
 macro_rules! tlwe_encryptable {
@@ -42,15 +46,14 @@ impl<const N: usize> TLWERep<N> {
 
         let (b_, a_) = self.get_and_drop();
         let a_decomp: [[u32; IKS_L]; N] = mem::array_create_enumerate(|i| {
-            const TOTAL:u32 = u32::BITS;
+            const TOTAL: u32 = u32::BITS;
+            const ROUND: u32 = if (TOTAL - (IKS_L as u32) * BASEBIT) != 0 {
+                1 << (TOTAL - (IKS_L as u32) * BASEBIT - 1)
+            } else {
+                0
+            };
             // 丸める
-            let u = a_[i]
-                .inner()
-                .wrapping_add(if (TOTAL - (IKS_L as u32) * BASEBIT) != 0 {
-                    1 << (TOTAL - (IKS_L as u32) * BASEBIT - 1)
-                } else {
-                    0
-                });
+            let u = a_[i].inner().wrapping_add(ROUND);
 
             let mask = (1 << BASEBIT) - 1;
             // res={a_i}, a_i in [0,bg)

@@ -194,7 +194,7 @@ pub fn hom_nand_profile() {
         }
     }
 
-    tfhe_hom_nand_test();
+    //tfhe_hom_nand_test();
 }
 
 #[cfg(feature = "profile")]

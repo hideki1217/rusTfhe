@@ -42,7 +42,7 @@ impl<const N: usize> TRLWERep<N> {
     pub fn map<F: Fn(&Polynomial<Torus32, N>) -> Polynomial<Torus32, N>>(&self, f: F) -> Self {
         TRLWERep::new(f(self.cipher()), f(self.p_key()))
     }
-    pub fn trivial_one(text: Polynomial<Torus32, N>) -> Self {
+    pub fn trivial(text: Polynomial<Torus32, N>) -> Self {
         TRLWERep::new(text, pol!([Torus32::zero(); N]))
     }
 }
@@ -224,7 +224,7 @@ mod tests {
 
         let s_key = pol!(b_unif.gen_n::<N>());
         let pol = pol!([torus!(0.5); N]);
-        let rep = TRLWERep::trivial_one(pol);
+        let rep = TRLWERep::trivial(pol.clone());
         let res: Polynomial<Torus32, N> = Cryptor::decrypto(TRLWE, &s_key, rep);
         assert_eq!(res, pol, "trivialな暗号文を複号してみた");
     }

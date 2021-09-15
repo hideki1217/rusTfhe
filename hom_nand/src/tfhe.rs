@@ -82,7 +82,7 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         rep_tlwe: TLWERep<TLWE_N>,
         bk: &BootstrappingKey<TLWE_N, TRLWE_N>,
     ) -> TLWERep<TRLWE_N> {
-        let testvec = TRLWERep::trivial_one(pol!([torus!(TFHEHelper::COEF); TRLWE_N]));
+        let testvec = TRLWERep::trivial(pol!([torus!(TFHEHelper::COEF); TRLWE_N]));
         let trlwe = TFHE::blind_rotate(rep_tlwe, bk, testvec);
         trlwe.sample_extract_index(0)
     }
@@ -95,7 +95,9 @@ impl<const TLWE_N: usize, const TRLWE_N: usize> TFHE<TLWE_N, TRLWE_N> {
         const BITS: u32 = u32::BITS;
         let (b, a) = rep_tlwe.get_and_drop();
         let b = (b.inner() >> (BITS - NBIT - 1)).to_i32().unwrap(); // floor(b * 2*2^(NBIT))
-        let rotate = |rep: &TRLWERep<TRLWE_N>, n: i32| rep.map(|p| p.rotate(n));
+        let rotate = |rep: &TRLWERep<TRLWE_N>, n: i32|{
+            rep.map(|p|p.rotate(n) )
+        };
 
         // 計算 X^{-2bg(b-a*s)}*base = X^{(2bg*a)*s-(2bg*b)}*base where bg = 2^{NBIT}
         let trlwe = a
@@ -292,6 +294,7 @@ mod tests {
     /// - <2021/9/15>     36,041,455 ns/iter (+/- 1,390,477) // identity key switching を早くした
     /// - <2021/9/15>     34,990,505 ns/iter (+/- 4,284,517) // TRGSWRepF::crossをちょいsimd化しやすいように直した
     /// - <2021/9/15>     34,468,102 ns/iter (+/- 5,501,576) // rotateを実装そのままでifを消去
+    /// - <2021/9/15>     30,558,481 ns/iter (+/- 7,033,099) // 無駄な配列のコピーを見つけた
     #[bench]
     //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {

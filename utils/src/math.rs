@@ -38,7 +38,7 @@ P(X) = SUM_{i=0}^{N-1} 0\[i\]X^i
 を表す。
 X^N+1を法とした剰余環上の値
  */
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Polynomial<T, const N: usize>([T; N]);
 impl<T, const N: usize> Polynomial<T, N> {
     pub fn new(coeffis: [T; N]) -> Self {
@@ -46,6 +46,9 @@ impl<T, const N: usize> Polynomial<T, N> {
     }
     pub fn coefs(&self) -> &[T; N] {
         &self.0
+    }
+    pub fn coefs_mut(&mut self) -> &mut [T; N] {
+        &mut self.0
     }
     pub fn map<O, F: Fn(&T) -> O>(&self, f: F) -> Polynomial<O, N> {
         let mut arr: [MaybeUninit<O>; N] = unsafe { MaybeUninit::uninit().assume_init() };
@@ -59,13 +62,13 @@ impl<T, const N: usize> Polynomial<T, N> {
 impl<T, const N: usize> Index<usize> for Polynomial<T, N> {
     type Output = T;
     fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
+        &self.coefs()[index]
     }
 }
 impl<T: Copy, const N: usize> Polynomial<T, N> {
     #[inline]
     pub fn coef_(&self, i: usize) -> T {
-        self.0[i]
+        self.coefs()[i]
     }
 }
 impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
@@ -81,22 +84,34 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
     /// ```
     pub fn rotate(&self, n: i32) -> Self {
         let n = n.mod_floor(&(2 * N as i32)) as usize;
-        let mut arr:[MaybeUninit<T>;N] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut arr: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
         if n <= N {
             let n: usize = n as usize;
-            let (arr_m,arr_p) = arr.split_at_mut(n);
-            let (coef_p,coef_m) = self.coefs().split_at(N-n);
-            arr_m.iter_mut().zip(coef_m.iter().map(|&t| -t)).for_each(|(x,c)| *x = MaybeUninit::new(c));
-            arr_p.iter_mut().zip(coef_p.iter()).for_each(|(x,&c)| *x = MaybeUninit::new(c));
+            let (arr_m, arr_p) = arr.split_at_mut(n);
+            let (coef_p, coef_m) = self.coefs().split_at(N - n);
+            arr_m
+                .iter_mut()
+                .zip(coef_m.iter().map(|&t| -t))
+                .for_each(|(x, c)| *x = MaybeUninit::new(c));
+            arr_p
+                .iter_mut()
+                .zip(coef_p.iter())
+                .for_each(|(x, &c)| *x = MaybeUninit::new(c));
         } else {
             let n: usize = n as usize - N;
-            let (arr_p,arr_m) = arr.split_at_mut(n);
-            let (coef_m,coef_p) = self.coefs().split_at(N-n);
-            arr_m.iter_mut().zip(coef_m.iter().map(|&t| -t)).for_each(|(x,c)| *x = MaybeUninit::new(c));
-            arr_p.iter_mut().zip(coef_p.iter()).for_each(|(x,&c)| *x = MaybeUninit::new(c));
+            let (arr_p, arr_m) = arr.split_at_mut(n);
+            let (coef_m, coef_p) = self.coefs().split_at(N - n);
+            arr_m
+                .iter_mut()
+                .zip(coef_m.iter().map(|&t| -t))
+                .for_each(|(x, c)| *x = MaybeUninit::new(c));
+            arr_p
+                .iter_mut()
+                .zip(coef_p.iter())
+                .for_each(|(x, &c)| *x = MaybeUninit::new(c));
         }
         pol!(mem::transmute(arr))
-        /* 
+        /*
         let n = n.mod_floor(&(2 * N as i32)) as usize;
         if n <= N {
             let n: usize = n as usize;
@@ -118,13 +133,13 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
 }
 impl<T: AddAssign + Copy, const N: usize> Polynomial<T, N> {
     pub fn add_constant(&mut self, rhs: T) {
-        self.0[0] += rhs;
+        self.coefs_mut()[0] += rhs;
     }
 }
 impl<S: Copy, T: Mul<S, Output = T> + Copy, const N: usize> Mul<S> for Polynomial<T, N> {
     type Output = Self;
     fn mul(mut self, rhs: S) -> Self::Output {
-        self.0.iter_mut().for_each(|x| *x = *x * rhs);
+        self.coefs_mut().iter_mut().for_each(|x| *x = *x * rhs);
         self
     }
 }
@@ -141,9 +156,9 @@ impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> Add<&Polynomial<S, N
 {
     type Output = Self;
     fn add(mut self, rhs: &Polynomial<S, N>) -> Self::Output {
-        self.0
+        self.coefs_mut()
             .iter_mut()
-            .zip(rhs.iter())
+            .zip(rhs.coefs().iter())
             .for_each(|(x, &y)| *x = *x + y);
         self
     }
@@ -159,9 +174,9 @@ impl<S: Copy, T: Add<S, Output = T> + Copy, const N: usize> AddAssign<&Polynomia
     for Polynomial<T, N>
 {
     fn add_assign(&mut self, rhs: &Polynomial<S, N>) {
-        self.0
+        self.coefs_mut()
             .iter_mut()
-            .zip(rhs.iter())
+            .zip(rhs.coefs().iter())
             .for_each(|(x, &y)| *x = *x + y);
     }
 }
@@ -172,7 +187,7 @@ where
 {
     type Output = Polynomial<T, N>;
     fn mul_add(self, a: &Polynomial<S, N>, mut b: Polynomial<T, N>) -> Self::Output {
-        b.iter_mut().enumerate().for_each(|(k, b_)| {
+        b.coefs_mut().iter_mut().enumerate().for_each(|(k, b_)| {
             *b_ = *b_
                 + if k < N - 1 {
                     convolution(self.coefs(), a.coefs(), k)
@@ -187,7 +202,7 @@ where
 impl<T: Neg<Output = T> + Copy, const N: usize> Neg for Polynomial<T, N> {
     type Output = Self;
     fn neg(mut self) -> Self::Output {
-        self.0.iter_mut().for_each(|x| *x = -*x);
+        self.coefs_mut().iter_mut().for_each(|x| *x = -*x);
         self
     }
 }
@@ -204,9 +219,9 @@ impl<S: Copy, T: Sub<S, Output = T> + Copy, const N: usize> Sub<&Polynomial<S, N
 {
     type Output = Self;
     fn sub(mut self, rhs: &Polynomial<S, N>) -> Self::Output {
-        self.0
+        self.coefs_mut()
             .iter_mut()
-            .zip(rhs.iter())
+            .zip(rhs.coefs().iter())
             .for_each(|(x, &y)| *x = *x - y);
         self
     }
@@ -238,16 +253,6 @@ impl<S: Copy, T: Sub<Output = T> + Copy + Zero + MulAdd<S, Output = T>, const N:
             }
         }
         Polynomial(mem::transmute::<_, [T; N]>(arr))
-    }
-}
-impl<T, const N: usize> Polynomial<T, N> {
-    #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, T> {
-        self.0.iter()
-    }
-    #[inline]
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
-        self.0.iter_mut()
     }
 }
 impl<const N: usize> From<&Polynomial<i32, N>> for FrrSeries<N> {
@@ -305,9 +310,9 @@ impl<const N: usize> Polynomial<Decimal<u32>, N> {
                     .map(|d| Decimal::from_bits(d.inner().wrapping_add(decomp_mask) ^ decomp_mask)),
             )
         };
+        let mask: u32 = (1 << bits) - 1;
         for (i, res_i) in res.iter_mut().enumerate() {
-            let mask: u32 = (1 << bits) - 1;
-            for (coef_i, res_i_j) in masked_coefs.iter().zip(res_i) {
+            for (coef_i, res_i_j) in masked_coefs.iter().zip(res_i.iter_mut()) {
                 let u = (coef_i.inner() >> (u32::BITS - bits * ((i + 1) as u32))) & mask;
                 // uはbits桁の符号付き表現になっている。bits -> 32へ符号拡張する
                 *res_i_j = MaybeUninit::new(
@@ -623,9 +628,11 @@ impl Decimal<u32> {
     /// assert!(Torus32::pow_two_minus(32).is_in(Torus32::from(0.0),1e-6));
     /// ```
     pub fn pow_two_minus(n: u32) -> Self {
-        if n == 0 { return Torus32::from_bits(0); } 
+        if n == 0 {
+            return Torus32::from_bits(0);
+        }
         let n = n.min(32);
-        Torus32::from_bits((1<<(32-n)))
+        Torus32::from_bits((1 << (32 - n)))
     }
 }
 impl Mul<u32> for Decimal<u32> {

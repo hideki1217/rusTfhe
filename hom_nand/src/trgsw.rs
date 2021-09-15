@@ -164,7 +164,7 @@ impl<const N: usize> Crypto<Polynomial<i32, N>> for TRGSW<N> {
         debug_assert!((I as u32) < TRGSWHelper::BGBIT);
         let (b, a) = rep.get_and_drop();
         let res: Polynomial<Torus32, N> =
-            Cryptor::decrypto(TRLWE, s_key, TRLWERep::new(b[I], a[I]));
+            Cryptor::decrypto(TRLWE, s_key, TRLWERep::new(b[I].clone(), a[I].clone()));
         res.map(|d| {
             let d: f32 = d.into();
             let res = (d * (TRGSWHelper::BG as f32)).round().to_i32().unwrap();
@@ -234,7 +234,7 @@ impl<const N: usize> Crypto<i32> for TRGSW<N> {
         const FALF_BG: i32 = BG / 2;
         debug_assert!((I as u32) < TRGSWHelper::BGBIT);
         let (b, a) = rep.get_and_drop();
-        let rep = TRLWERep::new(b[I], a[I]).sample_extract_index(0);
+        let rep = TRLWERep::new(b[I].clone(), a[I].clone()).sample_extract_index(0);
         let res: Torus32 = Cryptor::decrypto(TLWE, s_key.coefs(), rep);
         // 丸める
         let res: f32 = res.into();
@@ -372,7 +372,7 @@ mod tests {
             } else {
                 torus!(0.25)
             }));
-            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, expect));
+            let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, expect.clone()));
             let actual: Polynomial<Torus32, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {
                 assert!(
@@ -399,8 +399,8 @@ mod tests {
             let pol_0: Polynomial<Binary, N> = pol!([Binary::Zero; N]);
             let pol_1: Polynomial<Binary, N> = pol!([Binary::One; N]);
 
-            let rep_0_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_0);
-            let rep_1_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_1);
+            let rep_0_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_0.clone());
+            let rep_1_trlwe = Cryptor::encrypto(TRLWE, &s_key, pol_1.clone());
 
             let item = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
