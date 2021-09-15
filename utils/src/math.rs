@@ -516,7 +516,7 @@ impl Decimal<u32> {
     #[allow(dead_code)]
     pub const fn make_decomp_mask(l: u32, bits: u32) -> u32 {
         let total = u32::BITS;
-        let mut u = 1_u32;
+        let mut u = 0_u32;
         if (total - l * bits) != 0 {
             u = u.wrapping_add(1 << (total - l * bits - 1));
             let mut i = l;
@@ -561,7 +561,7 @@ impl Decimal<u32> {
                 // with round
                 (1..=L as u32).fold(0_u32, |s, i| s | 1 << (TOTAL - i * bits - 1))
             } else {
-                (1..=L as u32 - 1).fold(0_u32, |s, i| s | 1 << (TOTAL - i * bits - 1))
+                (1..L as u32).fold(0_u32, |s, i| s | 1 << (TOTAL - i * bits - 1))
             }
         };
         self.decomposition_i32_(bits, decomp_mask)

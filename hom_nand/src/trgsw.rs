@@ -376,9 +376,12 @@ mod tests {
             let actual: Polynomial<Torus32, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {
                 assert!(
-                    actual.coef_(i).is_in(expect.coef_(i), 1e-2),
-                    "N={}::1をTRGSWで暗号化してかけても、複合結果は変わらないはず\nrespect={:?}\n,actual={:?}",
+                    actual.coef_(i).is_in(expect.coef_(i), 2.0*1e-3),
+                    "N={}::1をTRGSWで暗号化してかけても、複合結果は変わらないはず\ndiff_abs={}\nrespect={:?}\n,actual={:?}",
                     N,
+                    {let a:f64 = actual.coef_(i).into();
+                    let b:f64 = expect.coef_(i).into();
+                    (a-b).abs()},
                     expect,
                     actual
                 );
