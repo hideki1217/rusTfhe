@@ -1,22 +1,28 @@
-
 use hom_nand::{
     digest::Cryptor,
     tfhe::{TFHEHelper, TFHE},
     tlwe::{TLWEHelper, TLWERep, TLWE},
 };
-use nander::{Logip, eval_logic_expr, parse_logic_expr};
-use std::{array, io::{self, BufRead, Write}};
-use utils::{math::{Binary, BinaryDistribution, Random}, timeit};
+use nander::{eval_logic_expr, parse_logic_expr, Logip};
+use std::{
+    array,
+    io::{self, BufRead, Write},
+};
+use utils::{
+    math::{Binary, BinaryDistribution, Random},
+    timeit,
+};
 
-#[cfg(feature="profile")]
-use nander::hom_nand_prof;
+#[cfg(feature = "profile")]
+use nander::hom_nand_profile;
 
-
-#[cfg(not(feature="profile"))]
-fn nander_console<P, CreateP, CONVERT>(
-    f: CreateP,
-    g: CONVERT,
-) where P: Logip, CreateP: Fn() -> P, CONVERT: Fn(P::R) -> Binary {
+#[cfg(not(feature = "profile"))]
+fn nander_console<P, CreateP, CONVERT>(f: CreateP, g: CONVERT)
+where
+    P: Logip,
+    CreateP: Fn() -> P,
+    CONVERT: Fn(P::R) -> Binary,
+{
     println!("Hello nander!!");
     println!("[Rule]1:true,0:false,&:and,$:nand,!:not,|:or,^:xor");
     println!("[Example]");
@@ -63,12 +69,12 @@ fn nander_console<P, CreateP, CONVERT>(
     }
 }
 
-#[cfg(feature="profile")]
+#[cfg(feature = "profile")]
 fn main() {
-    hom_nand_prof();
+    hom_nand_profile();
 }
 
-#[cfg(not(feature="profile"))]
+#[cfg(not(feature = "profile"))]
 fn main() {
     const TLWE_N: usize = TLWEHelper::N;
     const TRLWE_N: usize = 2_usize.pow(TFHEHelper::NBIT); //TRLWEHelper::N;
@@ -81,7 +87,7 @@ fn main() {
     nander_console(create_tfhe, convert);
 }
 
-/* 
+/*
 fn sample<P,Convert>(p:P,f:Convert) -> i32 where P:Trait,Convert:Fn(P::R)->i32 {
     f(p.func())
 }

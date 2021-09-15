@@ -10,7 +10,6 @@ edition = "2018"
 
 utils={path="../utils"}
 num="0.4"
-array-macro="2.1"
 debug_print="1.0"
 
 

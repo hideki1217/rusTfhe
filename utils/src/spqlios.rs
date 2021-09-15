@@ -1,11 +1,10 @@
+use num::Zero;
 use std::mem::MaybeUninit;
 use std::ops::Add;
 use std::ops::Sub;
 use std::os::raw::c_double;
 use std::os::raw::c_int;
 use std::os::raw::c_uint;
-
-use num::Zero;
 
 use crate::math::Polynomial;
 use crate::math::Torus32;
@@ -90,7 +89,7 @@ impl Spqlios {
         FrrSeries(crate::mem::transmute::<_, [f64; N]>(res))
     }
 
-    pub fn fft<const N: usize>(&mut self, input: &FrrSeries<N>) -> [f64;N] {
+    pub fn fft<const N: usize>(&mut self, input: &FrrSeries<N>) -> [f64; N] {
         debug_assert!(self.n == N, "spqlios: self.n={},N={}", self.n, N);
 
         let mut res: [MaybeUninit<f64>; N] = unsafe { MaybeUninit::uninit().assume_init() };
@@ -179,26 +178,33 @@ impl<const N: usize> Zero for FrrSeries<N> {
     }
 }
 impl<const N: usize> FrrSeries<N> {
+    #[inline]
     pub fn hadamard(&self, rhs: &Self) -> Self {
+        let l_re = &self.0[0..N / 2];
+        let l_im = &self.0[N / 2..N];
+        let r_re = &rhs.0[0..N / 2];
+        let r_im = &rhs.0[N / 2..N];
+
         let mut res: [MaybeUninit<f64>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+        let (res_re, res_im) = res.split_at_mut(N / 2);
         for i in 0..N / 2 {
-            let ii = self.0[i + N / 2] * rhs.0[i + N / 2];
-            let rr = self.0[i] * rhs.0[i];
-            let ri = self.0[i] * rhs.0[i + N / 2];
-            let ir = self.0[i + N / 2] * rhs.0[i];
-            res[i] = MaybeUninit::new(rr - ii);
-            res[i + N / 2] = MaybeUninit::new(ir + ri);
+            let ii = l_im[i] * r_im[i];
+            let rr = l_re[i] * r_re[i];
+            let ri = l_re[i] * r_im[i];
+            let ir = l_im[i] * r_re[i];
+            res_re[i] = MaybeUninit::new(rr - ii);
+            res_im[i] = MaybeUninit::new(ir + ri);
         }
+
         FrrSeries(mem::transmute::<_, [f64; N]>(res))
     }
-    pub fn culc_poly_torus(&self, spq:&mut Spqlios) -> Polynomial<Torus32,N> {
+    pub fn culc_poly_torus(&self, spq: &mut Spqlios) -> Polynomial<Torus32, N> {
         pol!(spq.fft_torus(&self))
     }
-    pub fn culc_poly(&self, spq:&mut Spqlios) -> Polynomial<f64,N> {
+    pub fn culc_poly(&self, spq: &mut Spqlios) -> Polynomial<f64, N> {
         pol!(spq.fft(&self))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -207,9 +213,9 @@ mod tests {
 
     use super::Spqlios;
 
-    fn very_close(a:Torus32,b:Torus32) -> bool{
-        let a_:f64 = a.into();
-        let b_:f64 = b.into();
+    fn very_close(a: Torus32, b: Torus32) -> bool {
+        let a_: f64 = a.into();
+        let b_: f64 = b.into();
         (a_ - b_).abs() < 1000.0
     }
     #[test]
@@ -230,15 +236,20 @@ mod tests {
 
         let pol1 = pol0;
         let res = spq.poly_mul(&pol0, &pol1);
-        let expect= {
+        let expect = {
             let mut tmp: [Torus32; 16] = [Torus32::zero(); 16];
             tmp[2] = Torus32::from_bits(1);
             tmp[3] = Torus32::from_bits(2);
             tmp[4] = Torus32::from_bits(1);
             tmp
         };
-        for (&r,e) in res.iter().zip(expect) {
-            assert!(very_close(r, e),"fft test: step 2 res={:?},expect={:?}",res,expect);
+        for (&r, e) in res.iter().zip(expect) {
+            assert!(
+                very_close(r, e),
+                "fft test: step 2 res={:?},expect={:?}",
+                res,
+                expect
+            );
         }
     }
 }

@@ -2,12 +2,11 @@ use super::digest::{Crypto, Cryptor, Encryptable, Encrypted};
 use super::tlwe::TLWE;
 use super::trlwe::TRLWE;
 use crate::trlwe::TRLWERep;
-use array_macro::array;
 use num::{ToPrimitive, Zero};
 use std::mem::MaybeUninit;
 use utils::math::{Binary, Cross, Polynomial, Torus32};
 use utils::spqlios::FrrSeries;
-use utils::torus;
+use utils::{mem, torus};
 
 pub struct TRGSW<const N: usize>;
 macro_rules! trgsw_encryptable {
@@ -54,23 +53,25 @@ impl<const N: usize> TRGSWRep<N> {
         TRGSWRep { cipher, p_key }
     }
 }
-pub struct TRGSWRepF<const N:usize>{
-    cipher_f: [FrrSeries<N>;TRGSWHelper::L * 2],
-    pkey_f: [FrrSeries<N>;TRGSWHelper::L * 2],
+pub struct TRGSWRepF<const N: usize> {
+    cipher_f: [FrrSeries<N>; TRGSWHelper::L * 2],
+    pkey_f: [FrrSeries<N>; TRGSWHelper::L * 2],
 }
-impl<const N:usize> From<&TRGSWRep<N>> for TRGSWRepF<N> {
+impl<const N: usize> From<&TRGSWRep<N>> for TRGSWRepF<N> {
     fn from(t: &TRGSWRep<N>) -> Self {
-        let cipher_f = array![i => FrrSeries::<N>::from(&t.cipher()[i]) ;TRGSWHelper::L*2];
-        let pkey_f = array![i => FrrSeries::<N>::from(&t.p_key()[i]) ;TRGSWHelper::L*2];
+        let cipher_f: [FrrSeries<N>; TRGSWHelper::L * 2] =
+            mem::array_create_enumerate(|i| FrrSeries::<N>::from(&t.cipher()[i]));
+        let pkey_f: [FrrSeries<N>; TRGSWHelper::L * 2] =
+            mem::array_create_enumerate(|i| FrrSeries::<N>::from(&t.p_key()[i]));
         TRGSWRepF { cipher_f, pkey_f }
     }
 }
-impl<const N:usize> From<TRGSWRep<N>> for TRGSWRepF<N> {
+impl<const N: usize> From<TRGSWRep<N>> for TRGSWRepF<N> {
     fn from(t: TRGSWRep<N>) -> Self {
         Self::from(&t)
     }
 }
-impl<const N:usize> TRGSWRepF<N>{
+impl<const N: usize> TRGSWRepF<N> {
     #[allow(dead_code)]
     fn cipher_f(&self) -> &[FrrSeries<N>; 2 * TRGSWHelper::L] {
         &self.cipher_f
@@ -113,7 +114,7 @@ impl<const N: usize> TRGSW<N> {
             unsafe { MaybeUninit::uninit().assume_init() };
         let mut p_key: [MaybeUninit<Polynomial<Torus32, N>>; M] =
             unsafe { MaybeUninit::uninit().assume_init() };
-
+        // TODO:　並列化
         for (b_, a_) in cipher.iter_mut().zip(p_key.iter_mut()) {
             let (b, a) =
                 Cryptor::encrypto(TRLWE, s_key, Polynomial::<Torus32, N>::zero()).get_and_drop();
@@ -258,30 +259,35 @@ impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRepF<N> {
     fn cross(&self, rhs: &TRLWERep<N>) -> Self::Output {
         const L: usize = TRGSWHelper::L;
         const BGBIT: u32 = TRGSWHelper::BGBIT;
-        let b_decomp = rhs.cipher().decomposition::<L>(BGBIT);
-        let a_decomp = rhs.p_key().decomposition::<L>(BGBIT);
+        const DECOMP_MASK: u32 = Torus32::make_decomp_mask(L as u32, BGBIT);
+        let b_decomp = rhs.cipher().decomposition_::<L>(BGBIT, DECOMP_MASK);
+        let a_decomp = rhs.p_key().decomposition_::<L>(BGBIT, DECOMP_MASK);
         let (b_trgsw_f, a_trgsw_f) = self.get_ref();
 
-        let b_decomp_f = array![i => FrrSeries::<N>::from(&b_decomp[i]);L];
-        let a_decomp_f = array![i => FrrSeries::<N>::from(&a_decomp[i]);L];
+        let b_decomp_f: [FrrSeries<N>; L] = unsafe {
+            mem::array_create(
+                b_decomp
+                    .iter()
+                    .map(|b_decomp_i| FrrSeries::<N>::from(b_decomp_i)),
+            )
+        };
+        let a_decomp_f: [FrrSeries<N>; L] = unsafe {
+            mem::array_create(
+                a_decomp
+                    .iter()
+                    .map(|a_decomp_i| FrrSeries::<N>::from(a_decomp_i)),
+            )
+        };
 
         // (cipher,p_key) = C*(b,a) = (b.decomp[0],..,,a.decomp[0],..)*(b_trgsw,a_trgsw)
-        let cipher_f = (0..L).fold(FrrSeries::zero(), |mut s, i| {
-            // let s = b_trgsw[i].fft_mul_add(&b_decomp[i], s);
-            // let s = b_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
-            s = s
-                + b_trgsw_f[i].hadamard(&b_decomp_f[i])
-                + b_trgsw_f[i+L].hadamard(&a_decomp_f[i]);
-            s
-        });
-        let p_key_f = (0..L).fold(FrrSeries::zero(), |mut s, i| {
-            //let s = a_trgsw[i].fft_mul_add(&b_decomp[i], s);
-            //let s = a_trgsw[i + L].fft_mul_add(&a_decomp[i], s);
-            s = s
-                + a_trgsw_f[i].hadamard(&b_decomp_f[i])
-                + a_trgsw_f[i+L].hadamard(&a_decomp_f[i]);
-            s
-        });
+        let cipher_f = b_trgsw_f
+            .iter()
+            .zip(b_decomp_f.iter().chain(a_decomp_f.iter()))
+            .fold(FrrSeries::zero(), |s, (l, r)| s + l.hadamard(r));
+        let p_key_f = a_trgsw_f
+            .iter()
+            .zip(b_decomp_f.iter().chain(a_decomp_f.iter()))
+            .fold(FrrSeries::zero(), |s, (l, r)| s + l.hadamard(r));
 
         let cipher: Polynomial<Torus32, N> = Polynomial::<Torus32, N>::from(cipher_f);
         let p_key: Polynomial<Torus32, N> = Polynomial::<Torus32, N>::from(p_key_f);
@@ -319,7 +325,6 @@ mod tests {
     use crate::{digest::Cryptor, trlwe::TRLWEHelper};
 
     use super::*;
-    use array_macro::array;
     use test::Bencher;
     use utils::math::*;
     use utils::{pol, torus};
@@ -330,12 +335,12 @@ mod tests {
 
         let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
 
-        let pol = pol!(array![ i => i as u32 % 20;N]);
+        let pol = pol!(mem::array_create_enumerate(|i| i as u32 % 20));
         let rep = Cryptor::encrypto(TRGSW::<N>, &s_key, pol.clone());
         let res: Polynomial<u32, N> = Cryptor::decrypto(TRGSW, &s_key, rep);
         assert_eq!(pol, res);
 
-        let pol = pol!(array![ i => 1 - 2*(i as i32 %2);N]);
+        let pol = pol!(mem::array_create_enumerate(|i| 1 - 2 * (i as i32 % 2)));
         let rep = Cryptor::encrypto(TRGSW::<N>, &s_key, pol.clone());
         let res: Polynomial<i32, N> = Cryptor::decrypto(TRGSW, &s_key, rep);
         assert_eq!(pol, res);
@@ -353,7 +358,11 @@ mod tests {
             let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
             let item: i32 = 1;
             let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, item);
-            let expect = pol!(array![ i => if i%2 ==0 { torus!(0.5) } else { torus!(0.25) };N]);
+            let expect = pol!(mem::array_create_enumerate(|i| if i % 2 == 0 {
+                torus!(0.5)
+            } else {
+                torus!(0.25)
+            }));
             let res_cross = rep_trgsw.cross(&Cryptor::encrypto(TRLWE, &s_key, expect));
             let actual: Polynomial<Torus32, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {
@@ -444,7 +453,8 @@ mod tests {
 
         let s_key = pol!(BinaryDistribution::uniform().gen_n::<N>());
 
-        let pol_u32: Polynomial<u32, N> = pol!(array![ i => (i%TRGSWHelper::BG)as u32;N]);
+        let pol_u32: Polynomial<u32, N> =
+            pol!(mem::array_create_enumerate(|i| (i % TRGSWHelper::BG) as u32));
         let pol_torus: Polynomial<Torus32, N> = pol!(ModDistribution::uniform().gen_n::<N>());
 
         let rep_trgsw = Cryptor::encrypto(TRGSW, &s_key, pol_u32);

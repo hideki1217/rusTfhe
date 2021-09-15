@@ -3,12 +3,6 @@
 version = 3
 
 [[package]]
-name = "array-macro"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a08c8f180019011a1d94e5eebcbfaa548736815f636fadc10955f1b622b4c71"
-
-[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -47,7 +41,6 @@ dependencies = [
 name = "hom_nand"
 version = "0.1.0"
 dependencies = [
- "array-macro",
  "debug_print",
  "num",
  "utils",
@@ -69,7 +62,6 @@ checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 name = "nander"
 version = "0.1.0"
 dependencies = [
- "array-macro",
  "hom_nand",
  "utils",
 ]
@@ -211,7 +203,6 @@ dependencies = [
 name = "utils"
 version = "0.1.0"
 dependencies = [
- "array-macro",
  "cc",
  "num",
  "rand",

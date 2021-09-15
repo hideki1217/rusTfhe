@@ -134,10 +134,9 @@ impl<const PRE_N: usize, const N: usize> BootstrappingKey<PRE_N, N> {
 
 #[cfg(test)]
 mod tests {
-    use array_macro::array;
     use std::time;
     use utils::math::{BinaryDistribution, Random};
-    use utils::timeit;
+    use utils::{mem, timeit};
 
     use super::*;
     use crate::tlwe::{TLWEHelper, TLWE};
@@ -162,17 +161,20 @@ mod tests {
         };
         {
             let title = "nand";
-            let rep = array![ i => {
-                let input_0 = Binary::from(i&0b01);
-                let input_1 = Binary::from(i&0b10);
+            let rep: [TLWERep<TLWE_N>; 4] = mem::array_create_enumerate(|i| {
+                let input_0 = Binary::from(i & 0b01);
+                let input_1 = Binary::from(i & 0b10);
                 let input_0_tlwe = tlwelv0_(input_0);
                 let input_1_tlwe = tlwelv0_(input_1);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_nand(input_0_tlwe, input_1_tlwe))
-            };4];
-            let res = array![i=> {
+                timeit!(
+                    format!("{} {} {}", title, input_0, input_1),
+                    tfhe.hom_nand(input_0_tlwe, input_1_tlwe)
+                )
+            });
+            let res = mem::array_create_enumerate(|i| {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
-            };4];
+            });
 
             let expect = [Binary::One, Binary::One, Binary::One, Binary::Zero];
             assert_eq!(
@@ -183,17 +185,20 @@ mod tests {
         }
         {
             let title = "and";
-            let rep = array![ i => {
-                let input_0 = Binary::from(i&0b01);
-                let input_1 = Binary::from(i&0b10);
+            let rep: [TLWERep<TLWE_N>; 4] = mem::array_create_enumerate(|i| {
+                let input_0 = Binary::from(i & 0b01);
+                let input_1 = Binary::from(i & 0b10);
                 let input_0_tlwe = tlwelv0_(input_0);
                 let input_1_tlwe = tlwelv0_(input_1);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_and(input_0_tlwe, input_1_tlwe))
-            };4];
-            let res = array![i=> {
+                timeit!(
+                    format!("{} {} {}", title, input_0, input_1),
+                    tfhe.hom_and(input_0_tlwe, input_1_tlwe)
+                )
+            });
+            let res = mem::array_create_enumerate(|i| {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
-            };4];
+            });
 
             let expect = [Binary::Zero, Binary::Zero, Binary::Zero, Binary::One];
             assert_eq!(
@@ -204,17 +209,20 @@ mod tests {
         }
         {
             let title = "or";
-            let rep = array![ i => {
-                let input_0 = Binary::from(i&0b01);
-                let input_1 = Binary::from(i&0b10);
+            let rep: [TLWERep<TLWE_N>; 4] = mem::array_create_enumerate(|i| {
+                let input_0 = Binary::from(i & 0b01);
+                let input_1 = Binary::from(i & 0b10);
                 let input_0_tlwe = tlwelv0_(input_0);
                 let input_1_tlwe = tlwelv0_(input_1);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_or(input_0_tlwe, input_1_tlwe))
-            };4];
-            let res = array![i=> {
+                timeit!(
+                    format!("{} {} {}", title, input_0, input_1),
+                    tfhe.hom_or(input_0_tlwe, input_1_tlwe)
+                )
+            });
+            let res = mem::array_create_enumerate(|i| {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
-            };4];
+            });
 
             let expect = [Binary::Zero, Binary::One, Binary::One, Binary::One];
             assert_eq!(
@@ -225,17 +233,20 @@ mod tests {
         }
         {
             let title = "xor";
-            let rep = array![ i => {
-                let input_0 = Binary::from(i&0b01);
-                let input_1 = Binary::from(i&0b10);
+            let rep: [TLWERep<TLWE_N>; 4] = mem::array_create_enumerate(|i| {
+                let input_0 = Binary::from(i & 0b01);
+                let input_1 = Binary::from(i & 0b10);
                 let input_0_tlwe = tlwelv0_(input_0);
                 let input_1_tlwe = tlwelv0_(input_1);
-                timeit!(format!("{} {} {}",title, input_0,input_1),tfhe.hom_xor(input_0_tlwe, input_1_tlwe))
-            };4];
-            let res = array![i=> {
+                timeit!(
+                    format!("{} {} {}", title, input_0, input_1),
+                    tfhe.hom_xor(input_0_tlwe, input_1_tlwe)
+                )
+            });
+            let res = mem::array_create_enumerate(|i| {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
-            };4];
+            });
 
             let expect = [Binary::Zero, Binary::One, Binary::One, Binary::Zero];
             assert_eq!(
@@ -246,15 +257,15 @@ mod tests {
         }
         {
             let title = "not";
-            let rep = array![ i => {
-                let input = Binary::from(i&0b1);
+            let rep: [TLWERep<TLWE_N>; 2] = mem::array_create_enumerate(|i| {
+                let input = Binary::from(i & 0b1);
                 let input_tlwe = tlwelv0_(input);
-                timeit!(format!("{} {}",title, input),tfhe.hom_not(input_tlwe))
-            };2];
-            let res = array![i=> {
+                timeit!(format!("{} {}", title, input), tfhe.hom_not(input_tlwe))
+            });
+            let res = mem::array_create_enumerate(|i| {
                 let res: Binary = Cryptor::decrypto(TLWE, &s_key_tlwelv0, rep[i].clone());
                 res
-            };2];
+            });
 
             let expect = [Binary::One, Binary::Zero];
             assert_eq!(
@@ -274,6 +285,10 @@ mod tests {
     /// - <2021/9/4>     120,941,429 ns/iter (+/- 8,804,684)  // 逆FFTのタイミングをずらした
     /// - <2021/9/11>     77,693,595 ns/iter (+/- 30,553,478) // spqlios導入
     /// - <2021/9/11>     63,989,293 ns/iter (+/- 25,612,018) // BootStrappingKeyに事前計算を導入
+    /// - <2021/9/12>     54,927,599 ns/iter (+/- 1,924,566) // decompotisionを最適化
+    /// - <2021/9/12>     46,745,865 ns/iter (+/- 10,219,869) // decompotisionのarrayマクロをMaybeUninitで書き直す
+    /// - <2021/9/13>     43,258,837 ns/iter (+/- 2,158,570) // utilsからarray!を削除
+    /// - <2021/9/15>     37,276,167 ns/iter (+/- 4,091,762) // pol::decompotisionをinline化,hadamardを修正,全体からarray!を削除
     #[bench]
     //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {

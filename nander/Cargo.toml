@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 hom_nand={path="../hom_nand"}
 utils={path="../utils"}
-array-macro="2.1"
 
 [features]
 profile = []

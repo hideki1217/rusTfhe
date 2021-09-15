@@ -1,6 +1,6 @@
+use crate::mem;
+use crate::spqlios::FrrSeries;
 use crate::spqlios::Spqlios;
-use crate::{mem, spqlios::FrrSeries};
-use array_macro::array;
 use num::{
     traits::{MulAdd, WrappingAdd, WrappingSub},
     Complex, Float, Integer, One, ToPrimitive, Unsigned, Zero,
@@ -81,10 +81,18 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
         let n = n.mod_floor(&(2 * N as i32)) as usize;
         if n <= N {
             let n: usize = n as usize;
-            pol!(array![ i => if i < n { -self.coef_(N+i-n) } else { self.coef_(i-n) } ;N])
+            pol!(mem::array_create_enumerate(|i| if i < n {
+                -self.coef_(N + i - n)
+            } else {
+                self.coef_(i - n)
+            }))
         } else {
             let n: usize = (2 * N - n) as usize;
-            pol!(array![ i=> if i+n >= N { -self.coef_(i+n-N) } else { self.coef_(n+i) } ;N])
+            pol!(mem::array_create_enumerate(|i| if i + n >= N {
+                -self.coef_(i + n - N)
+            } else {
+                self.coef_(n + i)
+            }))
         }
     }
 }
@@ -197,7 +205,6 @@ impl<S: Copy, T: Sub<Output = T> + Copy + Zero + MulAdd<S, Output = T>, const N:
 {
     type Output = Self;
     fn cross(&self, rhs: &Polynomial<S, N>) -> Self::Output {
-        // TODO: FFTにするとO(nlog(n))、今はn^2
         let mut arr: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
         for (sum, arr_i) in arr.iter_mut().enumerate() {
             // p(x)*q(x) = \sum_{s=0}^{2*(n-1)} \sum_{i=max(0,sum-(n-1))^{min(sum,n-1)} p_i * q_{sum-i} mod X^N+1
@@ -230,7 +237,7 @@ impl<const N: usize> From<&Polynomial<i32, N>> for FrrSeries<N> {
 }
 impl<const N: usize> From<&Polynomial<Binary, N>> for FrrSeries<N> {
     fn from(pol: &Polynomial<Binary, N>) -> Self {
-        let pol = array![i => pol[i] as i32;N];
+        let pol = mem::array_create_enumerate(|i| pol[i] as i32);
         FFT_MAP.with(|m| m.borrow_mut().get_fft_proc(N).ifft_int(&pol))
     }
 }
@@ -265,13 +272,38 @@ impl<const N: usize> From<FrrSeries<N>> for Polynomial<f64, N> {
     }
 }
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
+    pub fn decomposition_<const L: usize>(
+        &self,
+        bits: u32,
+        decomp_mask: u32,
+    ) -> [Polynomial<i32, N>; L] {
+        let mut res: [[MaybeUninit<i32>; N]; L] = unsafe { MaybeUninit::uninit().assume_init() };
+        let masked_coefs: [Decimal<u32>; N] = unsafe {
+            mem::array_create(
+                self.coefs()
+                    .iter()
+                    .map(|d| Decimal::from_bits(d.inner().wrapping_add(decomp_mask) ^ decomp_mask)),
+            )
+        };
+        for (i, res_i) in res.iter_mut().enumerate() {
+            let mask: u32 = (1 << bits) - 1;
+            for (coef_i, res_i_j) in masked_coefs.iter().zip(res_i) {
+                let u = (coef_i.inner() >> (u32::BITS - bits * ((i + 1) as u32))) & mask;
+                // uはbits桁の符号付き表現になっている。bits -> 32へ符号拡張する
+                *res_i_j = MaybeUninit::new(
+                    (u & (1 << (bits - 1)))
+                        .wrapping_mul(0xfffffffe_u32)
+                        .wrapping_add(u) as i32,
+                );
+            }
+        }
+        mem::transmute(res)
+    }
     pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
-        let res: [[i32; L]; N] = array![ i => {
-            self.coef_(i).decomposition_i32(bits)
-        }; N];
-        array![ i => {
-            pol!(array![ j => res[j][i]; N])
-        }; L]
+        let res_: [[i32; L]; N] =
+            unsafe { mem::array_create(self.coefs().iter().map(|d| d.decomposition_i32(bits))) };
+
+        mem::array_create_enumerate(|i| pol!(mem::array_create_enumerate(|j| res_[j][i])))
     }
 }
 impl<T, const N: usize> Polynomial<T, N> {
@@ -342,7 +374,7 @@ impl Display for Binary {
 pub trait Random<T> {
     fn gen(&mut self) -> T;
     fn gen_n<const N: usize>(&mut self) -> [T; N] {
-        let l: [T; N] = array![_ => self.gen(); N];
+        let l: [T; N] = mem::array_create_enumerate(|_| self.gen());
         l
     }
 }
@@ -481,26 +513,58 @@ impl<U: Unsigned + Zero + WrappingAdd> Zero for Decimal<U> {
 // 以下 Torus
 pub type Torus32 = Decimal<u32>;
 impl Decimal<u32> {
+    #[allow(dead_code)]
+    pub const fn make_decomp_mask(l: u32, bits: u32) -> u32 {
+        let total = u32::BITS;
+        let mut u = 1_u32;
+        if (total - l * bits) != 0 {
+            u = u.wrapping_add(1 << (total - l * bits - 1));
+            let mut i = l;
+            while i >= 1 {
+                u += 1 << (total - i * bits - 1);
+                i -= 1;
+            }
+        } else {
+            let mut i = l - 1;
+            while i >= 1 {
+                u += 1 << (total - i * bits - 1);
+                i -= 1;
+            }
+        }
+        u
+    }
+    pub fn decomposition_i32_<const L: usize>(self, bits: u32, decomp_mask: u32) -> [i32; L] {
+        const TOTAL: u32 = u32::BITS;
+        let u = self.inner().wrapping_add(decomp_mask) ^ decomp_mask;
+
+        let mask: u32 = (1 << bits) - 1;
+        let mut res: [MaybeUninit<i32>; L] = unsafe { MaybeUninit::uninit().assume_init() };
+        res.iter_mut().enumerate().for_each(|(i, res_i)| {
+            let u = (u >> (TOTAL - bits * ((i + 1) as u32))) & mask;
+            // uはbits桁の符号付き表現になっている。bits -> 32へ符号拡張する
+            *res_i = MaybeUninit::new(
+                (u & (1 << (bits - 1)))
+                    .wrapping_mul(0xfffffffe_u32)
+                    .wrapping_add(u) as i32,
+            );
+        });
+        mem::transmute::<_, [i32; L]>(res)
+    }
     /// 2進表現から2^bits進表現に変換
     /// - res\[i\] in [-bg/2,bg/2) where bg = 2^bits
     /// - N=u32::BITSを2^bitsで表現したときの有効桁数
-    pub fn decomposition_i32<const L: usize>(self,bits:u32) -> [i32; L] {
-        let mut u_res = self.decomposition_u32::<L>(bits);
-        // res={a_i}, a_i in [-bg/2,bg/2)
-        let bg = 1 << bits;
-        let mut i_res: [MaybeUninit<i32>; L] = unsafe { MaybeUninit::uninit().assume_init() };
-        for (i, i_res_i) in i_res.iter_mut().enumerate().rev() {
-            let u = u_res[i];
-            *i_res_i = MaybeUninit::new(if 2 * u >= bg {
-                if i > 0 {
-                    u_res[i - 1] += 1;
-                }
-                (u as i32) - (bg as i32)
+    pub fn decomposition_i32<const L: usize>(self, bits: u32) -> [i32; L] {
+        let decomp_mask = {
+            // inlined make_decomp_mask(L,bits) const Value
+            const TOTAL: u32 = u32::BITS;
+            if (TOTAL - L as u32 * bits) != 0 {
+                // with round
+                (1..=L as u32).fold(0_u32, |s, i| s | 1 << (TOTAL - i * bits - 1))
             } else {
-                u as i32
-            });
-        }
-        mem::transmute::<_, [i32; L]>(i_res)
+                (1..=L as u32 - 1).fold(0_u32, |s, i| s | 1 << (TOTAL - i * bits - 1))
+            }
+        };
+        self.decomposition_i32_(bits, decomp_mask)
     }
 
     /// 2進表現から2^bits進表現に変換
@@ -520,9 +584,8 @@ impl Decimal<u32> {
 
         let mask = (1 << bits) - 1;
         // res={a_i}, a_i in [0,bg)
-        let u_res = array![i => {
-            (u >> (TOTAL - bits*((i+1) as u32))) & mask
-        };L];
+        let u_res =
+            mem::array_create_enumerate(|i| (u >> (TOTAL - bits * ((i + 1) as u32))) & mask);
         u_res
     }
 
@@ -768,9 +831,7 @@ mod tests {
             {
                 let coef = pol.coef_(0);
                 let decomp = coef.decomposition_i32::<7>(4);
-                array![ i => {
-                    pol!([decomp[i]])
-                };7]
+                mem::array_create_enumerate(|i| pol!([decomp[i]]))
             },
             "要素数1のPolynomialを展開"
         );
