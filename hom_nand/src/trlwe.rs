@@ -31,6 +31,9 @@ impl<const N: usize> Encrypted<Polynomial<Torus32, N>, Polynomial<Torus32, N>> f
     fn get_and_drop(self) -> (Polynomial<Torus32, N>, Polynomial<Torus32, N>) {
         (self.cipher, self.p_key)
     }
+    fn get_mut_ref(&mut self) -> (&mut Polynomial<Torus32, N>, &mut Polynomial<Torus32, N>){
+        (&mut self.cipher,&mut self.p_key)
+    }
 }
 impl<const N: usize> TRLWERep<N> {
     pub fn new(cipher: Polynomial<Torus32, N>, p_key: Polynomial<Torus32, N>) -> Self {

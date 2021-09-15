@@ -1,7 +1,9 @@
 use num::Zero;
 use std::mem::MaybeUninit;
 use std::ops::Add;
+use std::ops::AddAssign;
 use std::ops::Sub;
+use std::ops::SubAssign;
 use std::os::raw::c_double;
 use std::os::raw::c_int;
 use std::os::raw::c_uint;
@@ -146,7 +148,7 @@ pub struct FrrSeries<const N: usize>([f64; N]);
 impl<const N: usize> Add<&Self> for FrrSeries<N> {
     type Output = Self;
     fn add(mut self, rhs: &Self) -> Self::Output {
-        self.0.iter_mut().zip(rhs.0).for_each(|(a, b)| *a += b);
+        self.add_assign(rhs);
         self
     }
 }
@@ -156,10 +158,20 @@ impl<const N: usize> Add for FrrSeries<N> {
         self + &rhs
     }
 }
+impl<const N:usize> AddAssign<&Self> for FrrSeries<N> {
+    fn add_assign(&mut self, rhs: &Self) {
+        self.0.iter_mut().zip(rhs.0).for_each(|(a, b)| *a += b);
+    }
+}
+impl<const N:usize> AddAssign<Self> for FrrSeries<N> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.add_assign(&rhs);
+    }
+}
 impl<const N: usize> Sub<&Self> for FrrSeries<N> {
     type Output = Self;
     fn sub(mut self, rhs: &Self) -> Self::Output {
-        self.0.iter_mut().zip(rhs.0).for_each(|(a, b)| *a -= b);
+        self.sub_assign(rhs);
         self
     }
 }
@@ -167,6 +179,16 @@ impl<const N: usize> Sub for FrrSeries<N> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         self - &rhs
+    }
+}
+impl<const N:usize> SubAssign<&Self> for FrrSeries<N> {
+    fn sub_assign(&mut self, rhs: &Self) {
+        self.0.iter_mut().zip(rhs.0).for_each(|(a, b)| *a -= b);
+    }
+}
+impl<const N:usize> SubAssign<Self> for FrrSeries<N> {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.sub_assign(&rhs);
     }
 }
 impl<const N: usize> Zero for FrrSeries<N> {

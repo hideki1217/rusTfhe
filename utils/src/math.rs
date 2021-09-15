@@ -79,21 +79,21 @@ impl<T: Neg<Output = T> + Copy, const N: usize> Polynomial<T, N> {
     /// ```
     pub fn rotate(&self, n: i32) -> Self {
         let n = n.mod_floor(&(2 * N as i32)) as usize;
+        let mut arr:[MaybeUninit<T>;N] = unsafe { MaybeUninit::uninit().assume_init() };
         if n <= N {
             let n: usize = n as usize;
-            pol!(mem::array_create_enumerate(|i| if i < n {
-                -self.coef_(N + i - n)
-            } else {
-                self.coef_(i - n)
-            }))
+            let (arr_m,arr_p) = arr.split_at_mut(n);
+            let (coef_p,coef_m) = self.coefs().split_at(N-n);
+            arr_m.iter_mut().zip(coef_m.iter().map(|&t| -t)).for_each(|(x,c)| *x = MaybeUninit::new(c));
+            arr_p.iter_mut().zip(coef_p.iter()).for_each(|(x,&c)| *x = MaybeUninit::new(c));
         } else {
             let n: usize = (2 * N - n) as usize;
-            pol!(mem::array_create_enumerate(|i| if i + n >= N {
-                -self.coef_(i + n - N)
-            } else {
-                self.coef_(n + i)
-            }))
+            let (arr_m,arr_p) = arr.split_at_mut(n);
+            let (coef_p,coef_m) = self.coefs().split_at(N-n);
+            arr_m.iter_mut().zip(coef_m.iter().map(|&t| -t)).for_each(|(x,c)| *x = MaybeUninit::new(c));
+            arr_p.iter_mut().zip(coef_p.iter()).for_each(|(x,&c)| *x = MaybeUninit::new(c));
         }
+        pol!(mem::transmute(arr))
     }
 }
 impl<T: AddAssign + Copy, const N: usize> Polynomial<T, N> {
@@ -272,7 +272,7 @@ impl<const N: usize> From<FrrSeries<N>> for Polynomial<f64, N> {
     }
 }
 impl<const N: usize> Polynomial<Decimal<u32>, N> {
-    pub fn decomposition_<const L: usize>(
+    pub fn decomposition_i32_<const L: usize>(
         &self,
         bits: u32,
         decomp_mask: u32,
@@ -299,7 +299,7 @@ impl<const N: usize> Polynomial<Decimal<u32>, N> {
         }
         mem::transmute(res)
     }
-    pub fn decomposition<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
+    pub fn decomposition_i32<const L: usize>(&self, bits: u32) -> [Polynomial<i32, N>; L] {
         let res_: [[i32; L]; N] =
             unsafe { mem::array_create(self.coefs().iter().map(|d| d.decomposition_i32(bits))) };
 
@@ -594,6 +594,19 @@ impl Decimal<u32> {
         let p: f32 = p.into();
         (x - p).abs() < acc
     }
+    /// ```
+    /// use std::convert::From;
+    /// use utils::math::Torus32;
+    /// assert!(Torus32::pow_two_minus(1).is_in(Torus32::from(0.5),1e-6));
+    /// assert!(Torus32::pow_two_minus(0).is_in(Torus32::from(1.0),1e-6));
+    /// assert!(Torus32::pow_two_minus(31).is_in(Torus32::from(0.5_f32.powi(31)),1e-6));
+    /// assert!(Torus32::pow_two_minus(32).is_in(Torus32::from(0.0),1e-6));
+    /// ```
+    pub fn pow_two_minus(n: u32) -> Self {
+        if n == 0 { return Torus32::from_bits(0); } 
+        let n = n.min(32);
+        Torus32::from_bits((1<<(32-n)))
+    }
 }
 impl Mul<u32> for Decimal<u32> {
     type Output = Self;
@@ -825,7 +838,7 @@ mod tests {
     #[test]
     fn polynomial_decomposition() {
         let pol = pol!([Decimal(0x8000_0000_u32)]);
-        let res = pol.decomposition::<7>(4);
+        let res = pol.decomposition_i32::<7>(4);
         assert_eq!(
             res,
             {
@@ -840,7 +853,7 @@ mod tests {
             Decimal(0x0000_0001_u32), /*[0,1]*/
             Decimal(0x0002_8000_u32)  /*[3,-32768]*/
         ]);
-        let res = pol.decomposition::<2>(16);
+        let res = pol.decomposition_i32::<2>(16);
         assert_eq!(
             res,
             [pol!([0, 3]), pol!([1, -32768])],
@@ -848,7 +861,7 @@ mod tests {
         );
 
         let pol = pol!([Decimal(0b000001_000010_000011_100000_000000_00u32)]);
-        let res = pol.decomposition::<3>(6);
+        let res = pol.decomposition_i32::<3>(6);
         assert_eq!(res, [pol!([1]), pol!([2]), pol!([4])], "パート３");
     }
     #[test]

@@ -35,6 +35,7 @@ pub trait Encrypted<Cipher, PublicKey>{
     fn cipher(&self) -> &Cipher;
     fn p_key(&self) -> &PublicKey;
     fn get_and_drop(self) -> (Cipher, PublicKey);
+    fn get_mut_ref(&mut self) -> (&mut Cipher,&mut PublicKey);
     fn get_ref(&self) -> (&Cipher, &PublicKey) {
         (self.cipher(), self.p_key())
     }

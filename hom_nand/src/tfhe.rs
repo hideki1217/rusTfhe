@@ -289,6 +289,9 @@ mod tests {
     /// - <2021/9/12>     46,745,865 ns/iter (+/- 10,219,869) // decompotisionのarrayマクロをMaybeUninitで書き直す
     /// - <2021/9/13>     43,258,837 ns/iter (+/- 2,158,570) // utilsからarray!を削除
     /// - <2021/9/15>     37,276,167 ns/iter (+/- 4,091,762) // pol::decompotisionをinline化,hadamardを修正,全体からarray!を削除
+    /// - <2021/9/15>     36,041,455 ns/iter (+/- 1,390,477) // identity key switching を早くした
+    /// - <2021/9/15>     34,990,505 ns/iter (+/- 4,284,517) // TRGSWRepF::crossをちょいsimd化しやすいように直した
+    /// - <2021/9/15>     34,468,102 ns/iter (+/- 5,501,576) // rotateを実装そのままでifを消去
     #[bench]
     //#[ignore = "Too late. for about 1 hour"]
     fn tfhe_hom_nand_bench(bencher: &mut Bencher) {

@@ -1,7 +1,7 @@
-use super::digest::{Crypto, Encryptable, Encrypted, Cryptor};
+use super::digest::{Crypto, Cryptor, Encryptable, Encrypted};
 use num::Zero;
-use std::ops::{Add, Mul, Neg, Sub};
-use utils::{math::{Binary, ModDistribution, Random, Torus32}, torus, traits::AsLogic};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use utils::{math::{Binary, ModDistribution, Random, Torus32}, mem, torus, traits::AsLogic};
 
 pub struct TLWE<const N: usize>;
 macro_rules! tlwe_encryptable {
@@ -27,6 +27,9 @@ impl<const N: usize> Encrypted<Torus32, [Torus32; N]> for TLWERep<N> {
     fn get_and_drop(self) -> (Torus32, [Torus32; N]) {
         (self.cipher, self.p_key)
     }
+    fn get_mut_ref(&mut self) -> (&mut Torus32, &mut [Torus32; N]) {
+        (&mut self.cipher, &mut self.p_key)
+    }
 }
 impl<const N: usize> TLWERep<N> {
     pub fn new(cipher: Torus32, p_key: [Torus32; N]) -> Self {
@@ -38,21 +41,32 @@ impl<const N: usize> TLWERep<N> {
         const IKS_L: usize = TLWEHelper::IKS_L;
 
         let (b_, a_) = self.get_and_drop();
-        let tlwe_init = TLWERep::new(b_, [Torus32::zero(); M]);
-        let tlwe = a_.iter().enumerate().fold(tlwe_init, |tlwe, (i, &a_i)| {
-            let a_i_decomp = a_i.decomposition_u32::<IKS_L>(BASEBIT);
-            (0..IKS_L)
-                .zip(a_i_decomp)
-                .fold(tlwe, |tlwe_, (l, a_i_decomp_l)| {
-                    if a_i_decomp_l != 0 {
-                        tlwe_ - ks.get(i, l, a_i_decomp_l as usize)/*TODO: unsafe { ks.get_unchecked(i, l, a_i_decomp_l as usize) }*/
-                    }
-                    else {
-                        tlwe_
-                    }
-                })
+        let a_decomp: [[u32; IKS_L]; N] = mem::array_create_enumerate(|i| {
+            const TOTAL:u32 = u32::BITS;
+            // 丸める
+            let u = a_[i]
+                .inner()
+                .wrapping_add(if (TOTAL - (IKS_L as u32) * BASEBIT) != 0 {
+                    1 << (TOTAL - (IKS_L as u32) * BASEBIT - 1)
+                } else {
+                    0
+                });
+
+            let mask = (1 << BASEBIT) - 1;
+            // res={a_i}, a_i in [0,bg)
+            utils::mem::array_create_enumerate(|l| {
+                (u >> (TOTAL - BASEBIT * ((l + 1) as u32))) & mask
+            })
         });
-        tlwe
+        let mut res = TLWERep::trivial(b_);
+        for (i, a_i_decomp) in a_decomp.iter().enumerate() {
+            for (l, &a_i_decomp_l) in a_i_decomp.iter().enumerate() {
+                if a_i_decomp_l != 0 {
+                    res -= ks.get(i, l, a_i_decomp_l as usize)
+                };
+            }
+        }
+        res
     }
 
     #[inline]
@@ -60,7 +74,7 @@ impl<const N: usize> TLWERep<N> {
         TLWERep::new(text, [Torus32::zero(); N])
     }
 }
-impl<const N: usize> AsLogic for TLWERep<N>{
+impl<const N: usize> AsLogic for TLWERep<N> {
     fn logic_true() -> Self {
         Self::trivial(TLWEHelper::binary2torus(Binary::One))
     }
@@ -76,15 +90,22 @@ impl<const N: usize> Add for TLWERep<N> {
 }
 impl<const N: usize> Add<&Self> for TLWERep<N> {
     type Output = Self;
-    fn add(self, rhs: &Self) -> Self::Output {
-        let (b, a) = self.get_and_drop();
+    fn add(mut self, rhs: &Self) -> Self::Output {
+        self.add_assign(rhs);
+        self
+    }
+}
+impl<const N: usize> AddAssign<&Self> for TLWERep<N> {
+    fn add_assign(&mut self, rhs: &Self) {
+        let (b, a) = self.get_mut_ref();
         let (b_, a_) = rhs.get_ref();
-        let mut a_res = a;
-        a_res
-            .iter_mut()
-            .zip(a_.iter())
-            .for_each(|(x, &y)| *x = *x + y);
-        TLWERep::new(b + *b_, a_res)
+        a.iter_mut().zip(a_.iter()).for_each(|(x, &y)| *x = *x + y);
+        *b = *b + *b_;
+    }
+}
+impl<const N: usize> AddAssign<Self> for TLWERep<N> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.add_assign(&rhs);
     }
 }
 impl<const N: usize> Sub for TLWERep<N> {
@@ -95,27 +116,34 @@ impl<const N: usize> Sub for TLWERep<N> {
 }
 impl<const N: usize> Sub<&Self> for TLWERep<N> {
     type Output = Self;
-    fn sub(self, rhs: &Self) -> Self::Output {
-        let (b, a) = self.get_and_drop();
+    fn sub(mut self, rhs: &Self) -> Self::Output {
+        self.sub_assign(rhs);
+        self
+    }
+}
+impl<const N: usize> SubAssign<&Self> for TLWERep<N> {
+    fn sub_assign(&mut self, rhs: &Self) {
+        let (b, a) = self.get_mut_ref();
         let (b_, a_) = rhs.get_ref();
-        let mut a_res = a;
-        a_res
-            .iter_mut()
-            .zip(a_.iter())
-            .for_each(|(x, &y)| *x = *x - y);
-        TLWERep::new(b - *b_, a_res)
+        a.iter_mut().zip(a_.iter()).for_each(|(x, &y)| *x = *x - y);
+        *b = *b - *b_;
     }
 }
-impl<const N:usize> Neg for TLWERep<N>{
-    type Output=Self;
+impl<const N: usize> SubAssign<Self> for TLWERep<N> {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.sub_assign(&rhs);
+    }
+}
+impl<const N: usize> Neg for TLWERep<N> {
+    type Output = Self;
     fn neg(self) -> Self::Output {
-        let (mut b,mut a) = self.get_and_drop();
+        let (mut b, mut a) = self.get_and_drop();
         b = -b;
-        a.iter_mut().for_each(|x|*x = -*x);
-        TLWERep::new(b,a)
+        a.iter_mut().for_each(|x| *x = -*x);
+        TLWERep::new(b, a)
     }
 }
-impl<Int: Copy,const N: usize> Mul<Int> for TLWERep<N>
+impl<Int: Copy, const N: usize> Mul<Int> for TLWERep<N>
 where
     Torus32: Mul<Int, Output = Torus32>,
 {
@@ -154,7 +182,7 @@ impl TLWEHelper {
         })
     }
     pub fn torus2binary(torus: Torus32) -> Binary {
-        let f:f32 = torus.into();
+        let f: f32 = torus.into();
         if f < 0.5 {
             Binary::One
         } else {
@@ -221,7 +249,7 @@ impl<const N: usize, const M: usize> KeySwitchingKey<N, M> {
         let culc_tlwe = |s_i: Binary, l: u32, t: u32| {
             let s_i: f32 = s_i.into();
             // t*s_i/2^{basebit * l}
-            let item:Torus32 = torus!(s_i * 0.5_f32.powi(BASEBIT * l as i32) * t as f32);
+            let item: Torus32 = torus!(s_i * 0.5_f32.powi(BASEBIT * l as i32) * t as f32);
             let tlwe = Cryptor::encrypto(TLWE, next_s_key, item);
             tlwe
         };

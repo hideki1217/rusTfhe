@@ -44,6 +44,14 @@ impl<const N: usize>
     ) {
         (self.cipher, self.p_key)
     }
+    fn get_mut_ref(
+        &mut self,
+    ) -> (
+        &mut [Polynomial<Torus32, N>; 2 * TRGSWHelper::L],
+        &mut [Polynomial<Torus32, N>; 2 * TRGSWHelper::L],
+    ) {
+        (&mut self.cipher, &mut self.p_key)
+    }
 }
 impl<const N: usize> TRGSWRep<N> {
     pub fn new(
@@ -255,13 +263,12 @@ impl<const N: usize> Crypto<Binary> for TRGSW<N> {
 
 impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRepF<N> {
     type Output = TRLWERep<N>;
-
     fn cross(&self, rhs: &TRLWERep<N>) -> Self::Output {
         const L: usize = TRGSWHelper::L;
         const BGBIT: u32 = TRGSWHelper::BGBIT;
         const DECOMP_MASK: u32 = Torus32::make_decomp_mask(L as u32, BGBIT);
-        let b_decomp = rhs.cipher().decomposition_::<L>(BGBIT, DECOMP_MASK);
-        let a_decomp = rhs.p_key().decomposition_::<L>(BGBIT, DECOMP_MASK);
+        let b_decomp = rhs.cipher().decomposition_i32_::<L>(BGBIT, DECOMP_MASK);
+        let a_decomp = rhs.p_key().decomposition_i32_::<L>(BGBIT, DECOMP_MASK);
         let (b_trgsw_f, a_trgsw_f) = self.get_ref();
 
         let b_decomp_f: [FrrSeries<N>; L] = unsafe {
@@ -283,11 +290,13 @@ impl<const N: usize> Cross<TRLWERep<N>> for TRGSWRepF<N> {
         let cipher_f = b_trgsw_f
             .iter()
             .zip(b_decomp_f.iter().chain(a_decomp_f.iter()))
-            .fold(FrrSeries::zero(), |s, (l, r)| s + l.hadamard(r));
+            .map(|(l, r)| l.hadamard(r))
+            .fold(FrrSeries::zero(),|s,lr| s + lr);
         let p_key_f = a_trgsw_f
             .iter()
             .zip(b_decomp_f.iter().chain(a_decomp_f.iter()))
-            .fold(FrrSeries::zero(), |s, (l, r)| s + l.hadamard(r));
+            .map(|(l, r)| l.hadamard(r))
+            .fold(FrrSeries::zero(),|s,lr| s + lr);
 
         let cipher: Polynomial<Torus32, N> = Polynomial::<Torus32, N>::from(cipher_f);
         let p_key: Polynomial<Torus32, N> = Polynomial::<Torus32, N>::from(p_key_f);
@@ -367,7 +376,7 @@ mod tests {
             let actual: Polynomial<Torus32, N> = Cryptor::decrypto(TRLWE, &s_key, res_cross);
             for i in 0..N {
                 assert!(
-                    actual.coef_(i).is_in(expect.coef_(i), 1e-3),
+                    actual.coef_(i).is_in(expect.coef_(i), 1e-2),
                     "N={}::1をTRGSWで暗号化してかけても、複合結果は変わらないはず\nrespect={:?}\n,actual={:?}",
                     N,
                     expect,
