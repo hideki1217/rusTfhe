@@ -15,4 +15,12 @@ cargo build --release
 cargo run --release 
 ```
 
+# run tfhe bench
+```
+git clone https://github.com/hideki1217/rusTfhe
+cd rusTfhe
+cargo run --release --exmaple homnand-bench
+```
+
+
 
